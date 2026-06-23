@@ -1,5 +1,6 @@
 import { exportable } from "../export/markdown.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
+import { validateWorkspace } from "../domain/validation.js";
 
 export type BuildPromptTarget = "codex" | "cursor";
 
@@ -11,6 +12,7 @@ export function createBuildPrompt(
   const dataObjects = exportable(workspace.objects.dataObjects);
   const flows = exportable(workspace.objects.flows);
   const issues = exportable(workspace.objects.issues).filter((issue) => issue.includeInPrompt !== false);
+  const validation = validateWorkspace(workspace);
   const toolName = options.targetTool === "codex" ? "Codex" : "Cursor";
   const targetInstruction =
     options.targetTool === "codex"
@@ -41,6 +43,13 @@ export function createBuildPrompt(
       ].filter(Boolean).join("\n"),
     ),
     "",
+    "Export validation warnings:",
+    ...emptyAware(validation.warnings.map((warning) => `- ${warning.message}`)),
+    "",
     "Excluded scope: SaaS backend, login, billing, team collaboration, marketplace, GitHub write integration, and real AI provider calls.",
   ].join("\n");
+}
+
+function emptyAware(lines: string[]): string[] {
+  return lines.length > 0 ? lines : ["- None"];
 }

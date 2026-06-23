@@ -4,6 +4,7 @@ import { ExportPanel } from "./components/ExportPanel.js";
 import { MapPanels, MissingParts } from "./components/MapPanels.js";
 import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./components/ReviewPanel.js";
 import { convertAiAnalysisToXrayObjects } from "./domain/convert.js";
+import { compareSuggestionSets } from "./domain/diff.js";
 import {
   editXrayObject,
   mergeAiSuggestionsPreservingConfirmed,
@@ -105,6 +106,8 @@ export default function App() {
       now,
     });
     const mergeImpact = summarizeSuggestionMergeImpact(versionedWorkspace.objects, converted);
+    const mergedObjects = mergeAiSuggestionsPreservingConfirmed(versionedWorkspace.objects, converted);
+    const structureDiff = compareSuggestionSets(versionedWorkspace.objects, mergedObjects);
     const lastAnalysis = {
       runId: `analysis_${crypto.randomUUID()}`,
       sourceDocumentId: sourceDocument.id,
@@ -120,10 +123,11 @@ export default function App() {
         appTypes: validation.result.summary.appTypes,
         updatedAt: now,
       },
-      objects: mergeAiSuggestionsPreservingConfirmed(versionedWorkspace.objects, converted),
+      objects: mergedObjects,
       buildPlanSuggestions: converted.buildPlanSuggestions,
       lastAnalysis,
       analysisHistory: [lastAnalysis, ...(versionedWorkspace.analysisHistory ?? [])].slice(0, 10),
+      lastStructureDiff: structureDiff,
       updatedAt: now,
     });
   }
@@ -251,6 +255,7 @@ export default function App() {
           <a href="#data-map">정보 구조</a>
           <a href="#missing">빠진 것</a>
           <a href="#prompt">빌드 프롬프트</a>
+          <a href="#build-plan">빌드 순서</a>
           <a href="#export">내보내기</a>
         </nav>
         <div className="project-switcher" aria-label="로컬 프로젝트 목록">
@@ -327,6 +332,7 @@ export default function App() {
               ))}
             </div>
           ) : null}
+          {workspace?.lastStructureDiff ? <DiffSummary diff={workspace.lastStructureDiff} /> : null}
         </section>
 
         {workspace ? (
@@ -366,6 +372,14 @@ export default function App() {
               <pre className="preview">{buildPrompt}</pre>
             </section>
 
+            <section className="panel" id="build-plan">
+              <div className="section-heading">
+                <span>AI 제안 빌드 순서</span>
+                <h2>검토용 순서 초안</h2>
+              </div>
+              <BuildPlanPreview steps={workspace.buildPlanSuggestions} />
+            </section>
+
             <ExportPanel activeExport={activeExport} onExportChange={setActiveExport} workspace={workspace} />
           </>
         ) : (
@@ -376,6 +390,41 @@ export default function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function DiffSummary({ diff }: { diff: NonNullable<ProjectWorkspace["lastStructureDiff"]> }) {
+  return (
+    <div className="diff-summary" aria-label="이번 분석에서 바뀐 것">
+      <strong>이번 분석에서 바뀐 것</strong>
+      <span>새 항목 {diff.counts.added}</span>
+      <span>내용 변경 {diff.counts.changed}</span>
+      <span>상태 변경 {diff.counts.status_changed}</span>
+      <span>확정 보존 {diff.counts.preserved_confirmed}</span>
+    </div>
+  );
+}
+
+function BuildPlanPreview({ steps }: { steps: ProjectWorkspace["buildPlanSuggestions"] }) {
+  if (steps.length === 0) return <p className="muted">아직 AI가 제안한 빌드 순서가 없습니다.</p>;
+
+  return (
+    <div className="build-plan-list">
+      {steps.map((step, index) => (
+        <article className="build-plan-step" key={step.tempId}>
+          <span>제안 {index + 1}</span>
+          <div>
+            <strong>{step.title}</strong>
+            <p>{step.description}</p>
+            {step.completionCriteria?.length ? (
+              <ul>
+                {step.completionCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}
+              </ul>
+            ) : null}
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 

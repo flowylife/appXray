@@ -38,6 +38,13 @@ button:hover {
   background: #075956;
 }
 
+button:disabled,
+button:disabled:hover {
+  background: #d8dfdd;
+  color: #7c8985;
+  cursor: not-allowed;
+}
+
 button.secondary {
   background: #e8eeec;
   color: #21302f;
@@ -309,11 +316,27 @@ textarea {
   margin-top: 0.6rem;
 }
 
-.analysis-history span {
+.analysis-history span,
+.diff-summary span {
   background: #fbfcfc;
   border: 1px solid #dfe7e4;
   border-radius: 8px;
   padding: 0.45rem 0.6rem;
+}
+
+.diff-summary {
+  align-items: center;
+  color: #40504c;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  font-weight: 700;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+}
+
+.diff-summary strong {
+  margin-right: 0.2rem;
 }
 
 .review-filters {
@@ -576,6 +599,74 @@ textarea {
   gap: 1rem;
 }
 
+.validation-panel {
+  background: #fbfcfc;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+  padding: 0.85rem;
+}
+
+.validation-panel strong {
+  font-size: 0.9rem;
+}
+
+.validation-panel p,
+.validation-panel li {
+  color: #60706b;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.validation-panel span {
+  color: #40504c;
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+}
+
+.validation-panel ul {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.build-plan-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.build-plan-step {
+  background: #fbfcfc;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 76px minmax(0, 1fr);
+  padding: 0.85rem;
+}
+
+.build-plan-step > span {
+  color: #60706b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.build-plan-step p,
+.build-plan-step li {
+  color: #60706b;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.build-plan-step ul {
+  margin: 0.45rem 0 0;
+  padding-left: 1.15rem;
+}
+
 .export-file-name {
   font-size: 0.84rem;
   margin-bottom: 0.7rem;
@@ -615,7 +706,8 @@ textarea {
   .review-row,
   .review-row.editing,
   .issue,
-  .map-detail-grid {
+  .map-detail-grid,
+  .build-plan-step {
     align-items: stretch;
     grid-template-columns: 1fr;
   }

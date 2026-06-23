@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { validateAiAnalysisResult } from "../dist/ai/adapter.js";
+import { compareSuggestionSets } from "../dist/domain/diff.js";
 import { fieldPowerAppSuggestionSet, mockFieldPowerAppAnalysis } from "../dist/fixtures/field-power-app.js";
 import {
   updateXrayObjectStatus,
@@ -19,7 +20,9 @@ import {
   isConfirmedStatus,
   isConfirmedXrayObject,
 } from "../dist/domain/status.js";
+import { validateWorkspace } from "../dist/domain/validation.js";
 import { fieldPowerAppProject, fieldPowerAppSourceDocument } from "../dist/fixtures/field-power-app.js";
+import { exportGithubIssuesMarkdown } from "../dist/export/github-issues.js";
 import { exportProjectJson } from "../dist/export/json.js";
 import { exportProjectMarkdown } from "../dist/export/markdown.js";
 import { exportAppMapMermaid, exportDataMapMermaid } from "../dist/export/mermaid.js";
@@ -268,10 +271,167 @@ test("export bundle contains deterministic confirmed-only files", () => {
   assert.equal(bundle.projectId, workspace.project.id);
   assert.deepEqual(
     bundle.files.map((file) => file.exportType),
-    ["markdown", "appMermaid", "dataMermaid", "json", "codexPrompt", "cursorPrompt"],
+    ["markdown", "appMermaid", "dataMermaid", "json", "codexPrompt", "cursorPrompt", "githubIssues"],
   );
   assert.equal(getExportContent(workspace, "bundle"), getExportContent(workspace, "bundle"));
   assert.match(bundle.files.find((file) => file.exportType === "json").content, /"objects"/);
+});
+
+test("workspace validation catches broken confirmed data relations", () => {
+  const [source] = fieldPowerAppSuggestionSet.dataObjects;
+  const [relation] = fieldPowerAppSuggestionSet.dataRelations;
+  assert.ok(source);
+  assert.ok(relation);
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [updateXrayObjectStatus(source, "accepted")],
+      dataRelations: [
+        updateXrayObjectStatus(
+          {
+            ...relation,
+            sourceObjectId: source.id,
+            targetObjectId: "missing_target",
+          },
+          "accepted",
+        ),
+      ],
+    },
+  });
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.isExportSafe, false);
+  assert.ok(report.errors.some((issue) => issue.code === "broken_relation"));
+});
+
+test("workspace validation catches duplicate confirmed names", () => {
+  const [first, second] = fieldPowerAppSuggestionSet.dataObjects;
+  assert.ok(first);
+  assert.ok(second);
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [
+        updateXrayObjectStatus({ ...first, displayName: "설비" }, "accepted"),
+        updateXrayObjectStatus({ ...second, displayName: "설비" }, "edited"),
+      ],
+    },
+  });
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.isExportSafe, false);
+  assert.ok(report.errors.some((issue) => issue.code === "duplicate_name"));
+});
+
+test("workspace validation warns when confirmed data object has no confirmed fields", () => {
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  assert.ok(dataObject);
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [updateXrayObjectStatus(dataObject, "accepted")],
+      dataFields: [],
+    },
+  });
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.isExportSafe, true);
+  assert.ok(report.warnings.some((issue) => issue.code === "data_object_without_fields"));
+});
+
+test("workspace validation ignores suggested-only objects as export errors", () => {
+  const workspace = {
+    project: fieldPowerAppProject,
+    sourceDocuments: [fieldPowerAppSourceDocument],
+    objects: fieldPowerAppSuggestionSet,
+    buildPlanSuggestions: [],
+    updatedAt: "2026-06-23T01:00:00.000Z",
+  };
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.errors.length, 0);
+});
+
+test("structure diff reports added changed status changes and preserved confirmed objects", () => {
+  const [screenA, screenB, screenC] = fieldPowerAppSuggestionSet.screens;
+  assert.ok(screenA);
+  assert.ok(screenB);
+  assert.ok(screenC);
+  const accepted = updateXrayObjectStatus(screenA, "accepted", "2026-06-23T01:00:00.000Z");
+  const suggested = updateXrayObjectStatus(screenB, "suggested", "2026-06-23T01:00:00.000Z");
+  const statusBefore = updateXrayObjectStatus(screenC, "suggested", "2026-06-23T01:00:00.000Z");
+
+  const before = {
+    ...emptySuggestionSetForTest(),
+    screens: [accepted, suggested, statusBefore],
+  };
+  const after = {
+    ...emptySuggestionSetForTest(),
+    screens: [
+      accepted,
+      { ...suggested, description: "AI가 갱신한 설명" },
+      updateXrayObjectStatus(statusBefore, "accepted", "2026-06-23T02:00:00.000Z"),
+      { ...fieldPowerAppSuggestionSet.screens[3], id: "screen_added" },
+    ],
+  };
+  const diff = compareSuggestionSets(before, after);
+
+  assert.equal(diff.counts.preserved_confirmed, 1);
+  assert.equal(diff.counts.changed, 1);
+  assert.equal(diff.counts.status_changed, 1);
+  assert.equal(diff.counts.added, 1);
+});
+
+test("GitHub issue markdown includes confirmed issues only", () => {
+  const [issue] = fieldPowerAppSuggestionSet.issues;
+  assert.ok(issue);
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      issues: [
+        updateXrayObjectStatus({ ...issue, title: "확정된 결정 필요 항목" }, "accepted"),
+        updateXrayObjectStatus({ ...issue, id: "issue_rejected", title: "제외된 항목" }, "rejected"),
+        { ...issue, id: "issue_suggested", title: "검토 대기 항목", status: "suggested" },
+      ],
+    },
+  });
+  const markdown = exportGithubIssuesMarkdown(workspace);
+
+  assert.match(markdown, /확정된 결정 필요 항목/);
+  assert.doesNotMatch(markdown, /제외된 항목/);
+  assert.doesNotMatch(markdown, /검토 대기 항목/);
+  assert.match(markdown, /### Acceptance Criteria/);
+});
+
+test("export helpers support GitHub issue markdown", () => {
+  const workspace = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, name: "현장 전력설비 관리 앱!" },
+  });
+
+  assert.equal(getExportFileName(workspace, "githubIssues"), "app-xray-현장-전력설비-관리-앱-github-issues.md");
+  assert.equal(getExportContent(workspace, "githubIssues"), exportGithubIssuesMarkdown(workspace));
+});
+
+test("build prompt includes validation warnings but excludes rejected issues", () => {
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  const [issue] = fieldPowerAppSuggestionSet.issues;
+  assert.ok(dataObject);
+  assert.ok(issue);
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [updateXrayObjectStatus(dataObject, "accepted")],
+      issues: [updateXrayObjectStatus(issue, "rejected")],
+    },
+  });
+  const prompt = createBuildPrompt(workspace, { targetTool: "codex" });
+
+  assert.match(prompt, /Export validation warnings/);
+  assert.match(prompt, /확정된 필드가 없습니다/);
+  assert.doesNotMatch(prompt, /알람 발생 조건이 빠져 있음/);
 });
 
 test("localStorage repository saves reloads and clears a workspace", () => {

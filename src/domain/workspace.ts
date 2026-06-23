@@ -1,4 +1,5 @@
 import type { AiBuildStepSuggestion } from "./ai-analysis.js";
+import type { StructureDiffReport } from "./diff.js";
 import type { Project, SourceDocument, XraySuggestionSet } from "./types.js";
 
 export type ProjectWorkspace = {
@@ -8,6 +9,7 @@ export type ProjectWorkspace = {
   buildPlanSuggestions: AiBuildStepSuggestion[];
   lastAnalysis?: WorkspaceAnalysisSummary;
   analysisHistory?: WorkspaceAnalysisSummary[];
+  lastStructureDiff?: StructureDiffReport;
   updatedAt: string;
 };
 

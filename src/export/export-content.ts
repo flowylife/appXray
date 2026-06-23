@@ -3,6 +3,7 @@ import { exportProjectJson } from "./json.js";
 import { exportProjectMarkdown } from "./markdown.js";
 import { exportAppMapMermaid, exportDataMapMermaid } from "./mermaid.js";
 import { createBuildPrompt } from "../prompt/build-prompt.js";
+import { exportGithubIssuesMarkdown } from "./github-issues.js";
 
 export type ExportType =
   | "markdown"
@@ -11,6 +12,7 @@ export type ExportType =
   | "json"
   | "codexPrompt"
   | "cursorPrompt"
+  | "githubIssues"
   | "bundle";
 
 export type ExportBundleFile = {
@@ -26,6 +28,7 @@ export function getExportContent(workspace: ProjectWorkspace, type: ExportType):
   if (type === "json") return exportProjectJson(workspace);
   if (type === "codexPrompt") return createBuildPrompt(workspace, { targetTool: "codex" });
   if (type === "cursorPrompt") return createBuildPrompt(workspace, { targetTool: "cursor" });
+  if (type === "githubIssues") return exportGithubIssuesMarkdown(workspace);
   return JSON.stringify(createExportBundle(workspace), null, 2);
 }
 
@@ -37,6 +40,7 @@ export function getExportFileName(workspace: ProjectWorkspace, type: ExportType)
   if (type === "json") return `app-xray-${projectSlug}.json`;
   if (type === "codexPrompt") return `app-xray-${projectSlug}-codex.md`;
   if (type === "cursorPrompt") return `app-xray-${projectSlug}-cursor.md`;
+  if (type === "githubIssues") return `app-xray-${projectSlug}-github-issues.md`;
   return `app-xray-${projectSlug}-bundle.json`;
 }
 
@@ -48,6 +52,7 @@ export function createExportBundle(workspace: ProjectWorkspace): { projectId: st
     "json",
     "codexPrompt",
     "cursorPrompt",
+    "githubIssues",
   ];
 
   return {
