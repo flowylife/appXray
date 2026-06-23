@@ -9,7 +9,10 @@ export const STATUS_LABELS: Record<SuggestionStatus, string> = {
   deferred: "나중에 결정",
 };
 
+const REVIEW_FILTERS: ReviewFilter[] = ["all", "suggested", "accepted", "edited", "rejected", "deferred"];
+
 export type ObjectBucket = keyof XraySuggestionSet;
+export type ReviewFilter = "all" | SuggestionStatus;
 
 export type EditableXrayObject = Screen | DataObject | Issue;
 
@@ -22,15 +25,30 @@ export function ReviewPanel({
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
+  const [filter, setFilter] = useState<ReviewFilter>("all");
+  const counts = countByStatus([...objects.screens, ...objects.dataObjects, ...objects.issues]);
+
   return (
     <section className="panel" id="review">
       <div className="section-heading">
         <span>분석 검토</span>
         <h2>AI 제안 초안</h2>
       </div>
-      <ReviewGroup title="화면" bucket="screens" objects={objects.screens} onStatus={onStatus} onEdit={onEdit} />
-      <ReviewGroup title="앱이 저장할 정보" bucket="dataObjects" objects={objects.dataObjects} onStatus={onStatus} onEdit={onEdit} />
-      <ReviewGroup title="빠진 것" bucket="issues" objects={objects.issues} onStatus={onStatus} onEdit={onEdit} />
+      <div className="review-filters" aria-label="Review status filters">
+        {REVIEW_FILTERS.map((nextFilter) => (
+          <button
+            className={filter === nextFilter ? "active" : "secondary"}
+            key={nextFilter}
+            type="button"
+            onClick={() => setFilter(nextFilter)}
+          >
+            {filterLabel(nextFilter)} {counts[nextFilter] ?? 0}
+          </button>
+        ))}
+      </div>
+      <ReviewGroup title="화면" bucket="screens" filter={filter} objects={objects.screens} onStatus={onStatus} onEdit={onEdit} />
+      <ReviewGroup title="앱이 저장할 정보" bucket="dataObjects" filter={filter} objects={objects.dataObjects} onStatus={onStatus} onEdit={onEdit} />
+      <ReviewGroup title="빠진 것" bucket="issues" filter={filter} objects={objects.issues} onStatus={onStatus} onEdit={onEdit} />
     </section>
   );
 }
@@ -39,21 +57,26 @@ function ReviewGroup({
   title,
   bucket,
   objects,
+  filter,
   onStatus,
   onEdit,
 }: {
   title: string;
   bucket: ObjectBucket;
+  filter: ReviewFilter;
   objects: EditableXrayObject[];
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
+  const filteredObjects = filterObjects(objects, filter);
+
   return (
     <div className="review-group">
-      <h3>{title}</h3>
+      <h3>{title} <span>{filteredObjects.length} / {objects.length}</span></h3>
       <div className="review-list">
         {objects.length === 0 ? <p className="muted">아직 제안이 없습니다.</p> : null}
-        {objects.map((object) => (
+        {objects.length > 0 && filteredObjects.length === 0 ? <p className="muted">현재 필터에 맞는 제안이 없습니다.</p> : null}
+        {filteredObjects.map((object) => (
           <ReviewRow
             bucket={bucket}
             key={object.id}
@@ -203,6 +226,34 @@ function createPatch(object: EditableXrayObject, draft: EditDraft): Partial<Edit
 
 function isIssue(object: EditableXrayObject): object is Issue {
   return "issueType" in object;
+}
+
+function filterObjects<T extends EditableXrayObject>(objects: T[], filter: ReviewFilter): T[] {
+  if (filter === "all") return objects;
+  return objects.filter((object) => object.status === filter);
+}
+
+function countByStatus(objects: EditableXrayObject[]): Record<ReviewFilter, number> {
+  return objects.reduce<Record<ReviewFilter, number>>(
+    (counts, object) => ({
+      ...counts,
+      all: counts.all + 1,
+      [object.status]: counts[object.status] + 1,
+    }),
+    {
+      all: 0,
+      suggested: 0,
+      accepted: 0,
+      edited: 0,
+      rejected: 0,
+      deferred: 0,
+    },
+  );
+}
+
+function filterLabel(filter: ReviewFilter): string {
+  if (filter === "all") return "전체";
+  return STATUS_LABELS[filter];
 }
 
 type EditDraft = {

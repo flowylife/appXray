@@ -3,7 +3,13 @@ import { ExportPanel } from "./components/ExportPanel.js";
 import { MapPanels, MissingParts } from "./components/MapPanels.js";
 import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./components/ReviewPanel.js";
 import { convertAiAnalysisToXrayObjects } from "./domain/convert.js";
-import { editXrayObject, mergeAiSuggestionsPreservingConfirmed, updateXrayObjectStatus } from "./domain/lifecycle.js";
+import {
+  editXrayObject,
+  mergeAiSuggestionsPreservingConfirmed,
+  summarizeSuggestionMergeImpact,
+  updateXrayObjectStatus,
+} from "./domain/lifecycle.js";
+import { appendSourceDocumentVersion, getLatestSourceDocument } from "./domain/source-documents.js";
 import { isConfirmedXrayObject } from "./domain/status.js";
 import type { BaseXrayObject, SuggestionStatus, XrayObject, XraySuggestionSet } from "./domain/types.js";
 import type { ProjectWorkspace } from "./domain/workspace.js";
@@ -37,6 +43,7 @@ export default function App() {
   const confirmedCounts = workspace ? countConfirmed(workspace.objects) : 0;
   const totalCounts = workspace ? countAll(workspace.objects) : 0;
   const buildPrompt = workspace ? createBuildPrompt(workspace, { targetTool: "codex" }) : "";
+  const latestSourceDocument = workspace ? getLatestSourceDocument(workspace) : undefined;
 
   function createProject() {
     const now = new Date().toISOString();
@@ -71,25 +78,33 @@ export default function App() {
   function runMockAnalysis() {
     const now = new Date().toISOString();
     const baseWorkspace = workspace ?? createWorkspaceFromForm(now);
-    const sourceDocument = baseWorkspace.sourceDocuments.at(0);
+    const versionedWorkspace = syncSourceDocument(baseWorkspace, now);
+    const sourceDocument = getLatestSourceDocument(versionedWorkspace);
     if (!sourceDocument) return;
 
     const converted = convertAiAnalysisToXrayObjects({
-      project: baseWorkspace.project,
+      project: versionedWorkspace.project,
       sourceDocument,
       analysis: mockFieldPowerAppAnalysis,
       now,
     });
+    const mergeImpact = summarizeSuggestionMergeImpact(versionedWorkspace.objects, converted);
 
     setWorkspace({
-      ...baseWorkspace,
+      ...versionedWorkspace,
       project: {
-        ...baseWorkspace.project,
+        ...versionedWorkspace.project,
         appTypes: mockFieldPowerAppAnalysis.summary.appTypes,
         updatedAt: now,
       },
-      objects: mergeAiSuggestionsPreservingConfirmed(baseWorkspace.objects, converted),
+      objects: mergeAiSuggestionsPreservingConfirmed(versionedWorkspace.objects, converted),
       buildPlanSuggestions: converted.buildPlanSuggestions,
+      lastAnalysis: {
+        sourceDocumentId: sourceDocument.id,
+        sourceVersion: sourceDocument.version,
+        analyzedAt: now,
+        ...mergeImpact,
+      },
       updatedAt: now,
     });
   }
@@ -153,6 +168,21 @@ export default function App() {
     setWorkspace(null);
   }
 
+  function saveSourceVersion() {
+    const now = new Date().toISOString();
+    setWorkspace((current) => {
+      const baseWorkspace = current ?? createWorkspaceFromForm(now);
+      return syncSourceDocument(baseWorkspace, now);
+    });
+  }
+
+  function syncSourceDocument(baseWorkspace: ProjectWorkspace, now: string): ProjectWorkspace {
+    return appendSourceDocumentVersion(baseWorkspace, sourceText, {
+      id: `src_${crypto.randomUUID()}`,
+      createdAt: now,
+    });
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="App X-Ray sections">
@@ -187,7 +217,7 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <button className="secondary" type="button" onClick={resetWorkspace}>초기화</button>
-            <button type="button" onClick={runMockAnalysis}>Mock 분석하기</button>
+            <button type="button" onClick={runMockAnalysis}>{workspace ? "Mock 재분석" : "Mock 분석하기"}</button>
           </div>
         </header>
 
@@ -210,7 +240,20 @@ export default function App() {
           </div>
           <div className="button-row">
             <button type="button" onClick={createProject}>프로젝트 저장</button>
+            {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>원문 새 버전 저장</button> : null}
             <button className="secondary" type="button" onClick={runMockAnalysis}>저장하고 Mock 분석</button>
+          </div>
+          <div className="source-meta">
+            <span>현재 원문 버전: v{latestSourceDocument?.version ?? 0}</span>
+            {latestSourceDocument ? <span>저장 시각: {formatDateTime(latestSourceDocument.createdAt)}</span> : null}
+            {workspace?.lastAnalysis ? (
+              <>
+                <span>최근 분석: v{workspace.lastAnalysis.sourceVersion}</span>
+                <span>새 제안 {workspace.lastAnalysis.addedSuggestedCount}</span>
+                <span>갱신 제안 {workspace.lastAnalysis.refreshedSuggestedCount}</span>
+                <span>보존 확정 {workspace.lastAnalysis.preservedConfirmedCount}</span>
+              </>
+            ) : null}
           </div>
         </section>
 
@@ -258,4 +301,11 @@ function countConfirmed(objects: XraySuggestionSet): number {
     (total, collection: BaseXrayObject[]) => total + collection.filter(isConfirmedXrayObject).length,
     0,
   );
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

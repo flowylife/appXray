@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { fieldPowerAppSuggestionSet } from "../dist/fixtures/field-power-app.js";
-import { updateXrayObjectStatus, editXrayObject, mergeAiSuggestionsPreservingConfirmed } from "../dist/domain/lifecycle.js";
+import {
+  updateXrayObjectStatus,
+  editXrayObject,
+  mergeAiSuggestionsPreservingConfirmed,
+  summarizeSuggestionMergeImpact,
+} from "../dist/domain/lifecycle.js";
+import {
+  appendSourceDocumentVersion,
+  createSourceDocumentVersion,
+  getLatestSourceDocument,
+} from "../dist/domain/source-documents.js";
 import {
   getDefaultExportableObjects,
   isConfirmedStatus,
@@ -235,6 +245,85 @@ test("localStorage parse failure opens empty with a visible load error", () => {
   assert.equal(result.workspace, null);
   assert.match(result.error, /읽을 수 없어 빈 상태/);
 });
+
+test("source document versions increment without replacing previous source text", () => {
+  const workspace = confirmedWorkspace();
+  const next = appendSourceDocumentVersion(workspace, "새로운 PRD 원문", {
+    id: "src_v2",
+    createdAt: "2026-06-23T02:00:00.000Z",
+  });
+
+  assert.equal(workspace.sourceDocuments.length, 1);
+  assert.equal(next.sourceDocuments.length, 2);
+  assert.equal(getLatestSourceDocument(next)?.version, 2);
+  assert.equal(getLatestSourceDocument(next)?.content, "새로운 PRD 원문");
+  assert.equal(next.sourceDocuments[0].content, fieldPowerAppSourceDocument.content);
+});
+
+test("source document version is not duplicated when content is unchanged", () => {
+  const workspace = confirmedWorkspace();
+  const next = appendSourceDocumentVersion(workspace, fieldPowerAppSourceDocument.content, {
+    id: "src_duplicate",
+    createdAt: "2026-06-23T02:00:00.000Z",
+  });
+
+  assert.equal(next, workspace);
+  assert.equal(next.sourceDocuments.length, 1);
+});
+
+test("source document factory creates the expected next version", () => {
+  const sourceDocument = createSourceDocumentVersion({
+    project: fieldPowerAppProject,
+    content: "PRD v3",
+    createdAt: "2026-06-23T03:00:00.000Z",
+    id: "src_v3",
+    previousVersion: 2,
+  });
+
+  assert.equal(sourceDocument.id, "src_v3");
+  assert.equal(sourceDocument.version, 3);
+  assert.equal(sourceDocument.content, "PRD v3");
+});
+
+test("merge impact distinguishes added refreshed and preserved confirmed suggestions", () => {
+  const [screenA, screenB] = fieldPowerAppSuggestionSet.screens;
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  assert.ok(screenA);
+  assert.ok(screenB);
+  assert.ok(dataObject);
+
+  const existing = {
+    ...emptySuggestionSetForTest(),
+    screens: [updateXrayObjectStatus(screenA, "accepted"), screenB],
+    dataObjects: [],
+  };
+  const incoming = {
+    ...emptySuggestionSetForTest(),
+    screens: [{ ...screenA, displayName: "AI가 바꾼 이름" }, { ...screenB, displayName: "갱신된 제안" }],
+    dataObjects: [dataObject],
+  };
+
+  const impact = summarizeSuggestionMergeImpact(existing, incoming);
+  assert.equal(impact.preservedConfirmedCount, 1);
+  assert.equal(impact.refreshedSuggestedCount, 1);
+  assert.equal(impact.addedSuggestedCount, 1);
+});
+
+function emptySuggestionSetForTest() {
+  return {
+    requirements: [],
+    screens: [],
+    features: [],
+    dataObjects: [],
+    dataFields: [],
+    dataRelations: [],
+    roles: [],
+    permissions: [],
+    flows: [],
+    flowSteps: [],
+    issues: [],
+  };
+}
 
 function confirmedWorkspace(overrides = {}) {
   return {

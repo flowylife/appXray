@@ -6,7 +6,18 @@ export type ProjectWorkspace = {
   sourceDocuments: SourceDocument[];
   objects: XraySuggestionSet;
   buildPlanSuggestions: AiBuildStepSuggestion[];
+  lastAnalysis?: WorkspaceAnalysisSummary;
   updatedAt: string;
+};
+
+export type WorkspaceAnalysisSummary = {
+  sourceDocumentId: string;
+  sourceVersion: number;
+  analyzedAt: string;
+  incomingSuggestedCount: number;
+  addedSuggestedCount: number;
+  refreshedSuggestedCount: number;
+  preservedConfirmedCount: number;
 };
 
 export function createEmptySuggestionSet(): XraySuggestionSet {

@@ -41,6 +41,47 @@ export function mergeAiSuggestionsPreservingConfirmed(
   };
 }
 
+export type SuggestionMergeImpact = {
+  incomingSuggestedCount: number;
+  addedSuggestedCount: number;
+  refreshedSuggestedCount: number;
+  preservedConfirmedCount: number;
+};
+
+export function summarizeSuggestionMergeImpact(
+  existing: XraySuggestionSet,
+  incoming: XraySuggestionSet,
+): SuggestionMergeImpact {
+  const impacts = [
+    summarizeCollection(existing.requirements, incoming.requirements),
+    summarizeCollection(existing.screens, incoming.screens),
+    summarizeCollection(existing.features, incoming.features),
+    summarizeCollection(existing.dataObjects, incoming.dataObjects),
+    summarizeCollection(existing.dataFields, incoming.dataFields),
+    summarizeCollection(existing.dataRelations, incoming.dataRelations),
+    summarizeCollection(existing.roles, incoming.roles),
+    summarizeCollection(existing.permissions, incoming.permissions),
+    summarizeCollection(existing.flows, incoming.flows),
+    summarizeCollection(existing.flowSteps, incoming.flowSteps),
+    summarizeCollection(existing.issues, incoming.issues),
+  ];
+
+  return impacts.reduce(
+    (total, impact) => ({
+      incomingSuggestedCount: total.incomingSuggestedCount + impact.incomingSuggestedCount,
+      addedSuggestedCount: total.addedSuggestedCount + impact.addedSuggestedCount,
+      refreshedSuggestedCount: total.refreshedSuggestedCount + impact.refreshedSuggestedCount,
+      preservedConfirmedCount: total.preservedConfirmedCount + impact.preservedConfirmedCount,
+    }),
+    {
+      incomingSuggestedCount: 0,
+      addedSuggestedCount: 0,
+      refreshedSuggestedCount: 0,
+      preservedConfirmedCount: 0,
+    },
+  );
+}
+
 function mergeCollection<T extends XrayObject>(existing: T[], incoming: T[]): T[] {
   const result = new Map<string, T>();
 
@@ -56,6 +97,41 @@ function mergeCollection<T extends XrayObject>(existing: T[], incoming: T[]): T[
   }
 
   return Array.from(result.values());
+}
+
+function summarizeCollection<T extends XrayObject>(existing: T[], incoming: T[]): SuggestionMergeImpact {
+  const existingByKey = new Map(existing.map((object) => [mergeKey(object), object]));
+
+  return incoming.reduce<SuggestionMergeImpact>(
+    (impact, object) => {
+      const current = existingByKey.get(mergeKey(object));
+      if (!current) {
+        return {
+          ...impact,
+          incomingSuggestedCount: impact.incomingSuggestedCount + 1,
+          addedSuggestedCount: impact.addedSuggestedCount + 1,
+        };
+      }
+      if (isConfirmedXrayObject(current)) {
+        return {
+          ...impact,
+          incomingSuggestedCount: impact.incomingSuggestedCount + 1,
+          preservedConfirmedCount: impact.preservedConfirmedCount + 1,
+        };
+      }
+      return {
+        ...impact,
+        incomingSuggestedCount: impact.incomingSuggestedCount + 1,
+        refreshedSuggestedCount: impact.refreshedSuggestedCount + 1,
+      };
+    },
+    {
+      incomingSuggestedCount: 0,
+      addedSuggestedCount: 0,
+      refreshedSuggestedCount: 0,
+      preservedConfirmedCount: 0,
+    },
+  );
 }
 
 function mergeKey(object: XrayObject): string {

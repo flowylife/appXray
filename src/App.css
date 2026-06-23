@@ -239,13 +239,52 @@ textarea {
   margin-top: 0.9rem;
 }
 
+.source-meta,
+.review-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.source-meta {
+  color: #60706b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-top: 0.9rem;
+}
+
+.source-meta span {
+  background: #f2f7f5;
+  border: 1px solid #dce8e4;
+  border-radius: 999px;
+  padding: 0.32rem 0.55rem;
+}
+
+.review-filters {
+  margin-bottom: 1rem;
+}
+
+.review-filters button {
+  padding: 0.5rem 0.72rem;
+}
+
 .review-group + .review-group {
   margin-top: 1.25rem;
 }
 
 .review-group h3 {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
   font-size: 0.98rem;
   margin-bottom: 0.65rem;
+}
+
+.review-group h3 span {
+  color: #60706b;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .review-list,
