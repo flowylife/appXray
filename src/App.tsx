@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { mockAiProviderAdapter, validateAiAnalysisResult } from "./ai/adapter.js";
 import { ExportPanel } from "./components/ExportPanel.js";
 import { MapPanels, MissingParts } from "./components/MapPanels.js";
 import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./components/ReviewPanel.js";
@@ -15,34 +16,43 @@ import type { BaseXrayObject, SuggestionStatus, XrayObject, XraySuggestionSet } 
 import type { ProjectWorkspace } from "./domain/workspace.js";
 import { createEmptySuggestionSet } from "./domain/workspace.js";
 import type { ExportType } from "./export/export-content.js";
-import { fieldPowerAppSourceDocument, mockFieldPowerAppAnalysis } from "./fixtures/field-power-app.js";
-import { createBuildPrompt } from "./prompt/build-prompt.js";
-import { createLocalStorageProjectRepository } from "./storage/project-repository.js";
+import { fieldPowerAppSourceDocument } from "./fixtures/field-power-app.js";
+import { createBuildPrompt, type BuildPromptTarget } from "./prompt/build-prompt.js";
+import { createLocalStorageProjectRepository, summarizeProjects } from "./storage/project-repository.js";
 
 const DEFAULT_PRD = fieldPowerAppSourceDocument.content;
 
 export default function App() {
   const repository = useMemo(() => createLocalStorageProjectRepository(), []);
-  const initialLoad = useMemo(() => repository.loadWithStatus(), [repository]);
-  const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(() => initialLoad.workspace);
+  const initialLoad = useMemo(() => repository.loadCollectionWithStatus(), [repository]);
+  const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(() => initialLoad.activeWorkspace);
+  const [projectSummaries, setProjectSummaries] = useState(() => summarizeProjects(initialLoad.collection));
   const [projectName, setProjectName] = useState(workspace?.project.name ?? "현장 전력설비 관리 앱");
   const [sourceText, setSourceText] = useState(workspace?.sourceDocuments.at(0)?.content ?? DEFAULT_PRD);
   const [activeExport, setActiveExport] = useState<ExportType>("markdown");
+  const [promptTarget, setPromptTarget] = useState<BuildPromptTarget>("codex");
   const [saveError, setSaveError] = useState<string | null>(initialLoad.error ?? null);
 
   useEffect(() => {
     if (!workspace) return;
     try {
-      repository.save(workspace);
+      const result = repository.saveWorkspace(workspace);
+      setProjectSummaries(summarizeProjects(result.collection));
       setSaveError(null);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "저장할 수 없습니다.");
     }
   }, [repository, workspace]);
 
+  useEffect(() => {
+    if (!workspace) return;
+    setProjectName(workspace.project.name);
+    setSourceText(getLatestSourceDocument(workspace)?.content ?? DEFAULT_PRD);
+  }, [workspace?.project.id]);
+
   const confirmedCounts = workspace ? countConfirmed(workspace.objects) : 0;
   const totalCounts = workspace ? countAll(workspace.objects) : 0;
-  const buildPrompt = workspace ? createBuildPrompt(workspace, { targetTool: "codex" }) : "";
+  const buildPrompt = workspace ? createBuildPrompt(workspace, { targetTool: promptTarget }) : "";
   const latestSourceDocument = workspace ? getLatestSourceDocument(workspace) : undefined;
 
   function createProject() {
@@ -81,30 +91,39 @@ export default function App() {
     const versionedWorkspace = syncSourceDocument(baseWorkspace, now);
     const sourceDocument = getLatestSourceDocument(versionedWorkspace);
     if (!sourceDocument) return;
+    const analysis = mockAiProviderAdapter.analyze({ sourceDocument });
+    const validation = validateAiAnalysisResult(analysis);
+    if (!validation.ok) {
+      setSaveError(`AI 분석 결과 검증 실패: ${validation.errors.join(" / ")}`);
+      return;
+    }
 
     const converted = convertAiAnalysisToXrayObjects({
       project: versionedWorkspace.project,
       sourceDocument,
-      analysis: mockFieldPowerAppAnalysis,
+      analysis: validation.result,
       now,
     });
     const mergeImpact = summarizeSuggestionMergeImpact(versionedWorkspace.objects, converted);
+    const lastAnalysis = {
+      runId: `analysis_${crypto.randomUUID()}`,
+      sourceDocumentId: sourceDocument.id,
+      sourceVersion: sourceDocument.version,
+      analyzedAt: now,
+      ...mergeImpact,
+    };
 
     setWorkspace({
       ...versionedWorkspace,
       project: {
         ...versionedWorkspace.project,
-        appTypes: mockFieldPowerAppAnalysis.summary.appTypes,
+        appTypes: validation.result.summary.appTypes,
         updatedAt: now,
       },
       objects: mergeAiSuggestionsPreservingConfirmed(versionedWorkspace.objects, converted),
       buildPlanSuggestions: converted.buildPlanSuggestions,
-      lastAnalysis: {
-        sourceDocumentId: sourceDocument.id,
-        sourceVersion: sourceDocument.version,
-        analyzedAt: now,
-        ...mergeImpact,
-      },
+      lastAnalysis,
+      analysisHistory: [lastAnalysis, ...(versionedWorkspace.analysisHistory ?? [])].slice(0, 10),
       updatedAt: now,
     });
   }
@@ -145,6 +164,15 @@ export default function App() {
     replaceObject(bucket, object.id, editXrayObject(object, patch as never));
   }
 
+  function toggleIssuePrompt(issue: EditableXrayObject) {
+    if (!("issueType" in issue)) return;
+    replaceObject(
+      "issues",
+      issue.id,
+      editXrayObject(issue, { includeInPrompt: issue.includeInPrompt === false }),
+    );
+  }
+
   function replaceObject(bucket: ObjectBucket, id: string, nextObject: XrayObject) {
     setWorkspace((current) => {
       if (!current) return current;
@@ -164,8 +192,31 @@ export default function App() {
     if (workspace && !window.confirm("현재 로컬 프로젝트를 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) {
       return;
     }
-    repository.clear();
-    setWorkspace(null);
+    if (!workspace) return;
+    const result = repository.deleteWorkspace(workspace.project.id);
+    setWorkspace(result.activeWorkspace);
+    setProjectSummaries(summarizeProjects(result.collection));
+    if (!result.activeWorkspace) {
+      setProjectName("현장 전력설비 관리 앱");
+      setSourceText(DEFAULT_PRD);
+    }
+  }
+
+  function openProject(projectId: string) {
+    const result = repository.setActiveProject(projectId);
+    setWorkspace(result.workspace);
+    setSaveError(result.error ?? null);
+  }
+
+  function deleteProject(projectId: string) {
+    if (!window.confirm("이 로컬 프로젝트를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+    const result = repository.deleteWorkspace(projectId);
+    setWorkspace(result.activeWorkspace);
+    setProjectSummaries(summarizeProjects(result.collection));
+    if (!result.activeWorkspace) {
+      setProjectName("현장 전력설비 관리 앱");
+      setSourceText(DEFAULT_PRD);
+    }
   }
 
   function saveSourceVersion() {
@@ -202,6 +253,18 @@ export default function App() {
           <a href="#prompt">빌드 프롬프트</a>
           <a href="#export">내보내기</a>
         </nav>
+        <div className="project-switcher" aria-label="로컬 프로젝트 목록">
+          <strong>로컬 프로젝트</strong>
+          {projectSummaries.length === 0 ? <small>아직 저장된 프로젝트가 없습니다.</small> : null}
+          {projectSummaries.map((project) => (
+            <div className={`project-item ${workspace?.project.id === project.id ? "active" : ""}`} key={project.id}>
+              <button type="button" onClick={() => openProject(project.id)}>{project.name}</button>
+              <button className="secondary icon-button" type="button" aria-label={`${project.name} 삭제`} onClick={() => deleteProject(project.id)}>
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
         <div className="status-card">
           <span>확정 구조</span>
           <strong>{confirmedCounts} / {totalCounts}</strong>
@@ -216,7 +279,7 @@ export default function App() {
             <p>AI는 초안을 제안하고, 사용자가 확정한 구조만 export됩니다.</p>
           </div>
           <div className="topbar-actions">
-            <button className="secondary" type="button" onClick={resetWorkspace}>초기화</button>
+            <button className="secondary" type="button" onClick={resetWorkspace}>현재 프로젝트 삭제</button>
             <button type="button" onClick={runMockAnalysis}>{workspace ? "Mock 재분석" : "Mock 분석하기"}</button>
           </div>
         </header>
@@ -255,26 +318,50 @@ export default function App() {
               </>
             ) : null}
           </div>
+          {workspace?.analysisHistory?.length ? (
+            <div className="analysis-history" aria-label="분석 이력">
+              {workspace.analysisHistory.slice(0, 3).map((analysis) => (
+                <span key={analysis.runId}>
+                  v{analysis.sourceVersion} · 새 {analysis.addedSuggestedCount} · 갱신 {analysis.refreshedSuggestedCount} · 보존 {analysis.preservedConfirmedCount}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         {workspace ? (
           <>
-            <ReviewPanel objects={workspace.objects} onStatus={updateObjectStatus} onEdit={editObject} />
+            <ReviewPanel
+              analysisChanges={workspace.lastAnalysis?.changes}
+              objects={workspace.objects}
+              onStatus={updateObjectStatus}
+              onEdit={editObject}
+            />
 
-            <MapPanels dataObjects={workspace.objects.dataObjects} screens={workspace.objects.screens} />
+            <MapPanels
+              dataFields={workspace.objects.dataFields}
+              dataObjects={workspace.objects.dataObjects}
+              dataRelations={workspace.objects.dataRelations}
+              features={workspace.objects.features}
+              screens={workspace.objects.screens}
+            />
 
             <section className="panel" id="missing">
               <div className="section-heading">
                 <span>빠진 것</span>
                 <h2>결정 필요 항목</h2>
               </div>
-              <MissingParts issues={workspace.objects.issues} />
+              <MissingParts issues={workspace.objects.issues} onTogglePrompt={toggleIssuePrompt} />
             </section>
 
             <section className="panel" id="prompt">
               <div className="section-heading">
                 <span>빌드 프롬프트</span>
-                <h2>Codex용 미리보기</h2>
+                <h2>{promptTarget === "codex" ? "Codex" : "Cursor"}용 미리보기</h2>
+              </div>
+              <div className="segmented prompt-target" aria-label="Prompt target">
+                <button className={promptTarget === "codex" ? "active" : ""} type="button" onClick={() => setPromptTarget("codex")}>Codex</button>
+                <button className={promptTarget === "cursor" ? "active" : ""} type="button" onClick={() => setPromptTarget("cursor")}>Cursor</button>
               </div>
               <pre className="preview">{buildPrompt}</pre>
             </section>

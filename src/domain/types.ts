@@ -232,6 +232,8 @@ export type Issue = BaseXrayObject & {
   title: string;
   description: string;
   suggestion?: string;
+  resolutionNote?: string;
+  includeInPrompt?: boolean;
   relatedScreenId?: string;
   relatedDataObjectId?: string;
   relatedFeatureId?: string;

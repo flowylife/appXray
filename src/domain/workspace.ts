@@ -7,10 +7,25 @@ export type ProjectWorkspace = {
   objects: XraySuggestionSet;
   buildPlanSuggestions: AiBuildStepSuggestion[];
   lastAnalysis?: WorkspaceAnalysisSummary;
+  analysisHistory?: WorkspaceAnalysisSummary[];
   updatedAt: string;
 };
 
+export type XraySuggestionBucket = keyof XraySuggestionSet;
+
+export type AnalysisChangeType =
+  | "added_suggestion"
+  | "refreshed_suggestion"
+  | "preserved_confirmed";
+
+export type AnalysisChange = {
+  bucket: XraySuggestionBucket;
+  objectId: string;
+  changeType: AnalysisChangeType;
+};
+
 export type WorkspaceAnalysisSummary = {
+  runId: string;
   sourceDocumentId: string;
   sourceVersion: number;
   analyzedAt: string;
@@ -18,6 +33,7 @@ export type WorkspaceAnalysisSummary = {
   addedSuggestedCount: number;
   refreshedSuggestedCount: number;
   preservedConfirmedCount: number;
+  changes: AnalysisChange[];
 };
 
 export function createEmptySuggestionSet(): XraySuggestionSet {

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { fieldPowerAppSuggestionSet } from "../dist/fixtures/field-power-app.js";
+import { validateAiAnalysisResult } from "../dist/ai/adapter.js";
+import { fieldPowerAppSuggestionSet, mockFieldPowerAppAnalysis } from "../dist/fixtures/field-power-app.js";
 import {
   updateXrayObjectStatus,
   editXrayObject,
@@ -24,7 +25,12 @@ import { exportProjectMarkdown } from "../dist/export/markdown.js";
 import { exportAppMapMermaid, exportDataMapMermaid } from "../dist/export/mermaid.js";
 import { getExportContent, getExportFileName } from "../dist/export/export-content.js";
 import { createBuildPrompt } from "../dist/prompt/build-prompt.js";
-import { createLocalStorageProjectRepository, loadProjectWorkspace } from "../dist/storage/project-repository.js";
+import {
+  createLocalStorageProjectRepository,
+  loadProjectCollection,
+  loadProjectWorkspace,
+  summarizeProjects,
+} from "../dist/storage/project-repository.js";
 
 test("confirmed status only includes accepted and edited", () => {
   assert.equal(isConfirmedStatus("suggested"), false);
@@ -99,6 +105,8 @@ test("editing an issue updates decision fields and marks it as edited", () => {
       title: "수정된 결정 필요 항목",
       description: "사용자가 설명을 명확히 고쳤습니다.",
       suggestion: "상태 값을 먼저 확정하세요.",
+      resolutionNote: "알람 기준은 high/medium/low로 시작한다.",
+      includeInPrompt: false,
     },
     "2026-06-23T01:00:00.000Z",
   );
@@ -107,6 +115,8 @@ test("editing an issue updates decision fields and marks it as edited", () => {
   assert.equal(edited.title, "수정된 결정 필요 항목");
   assert.equal(edited.description, "사용자가 설명을 명확히 고쳤습니다.");
   assert.equal(edited.suggestion, "상태 값을 먼저 확정하세요.");
+  assert.equal(edited.resolutionNote, "알람 기준은 high/medium/low로 시작한다.");
+  assert.equal(edited.includeInPrompt, false);
   assert.deepEqual(edited.origin, issue.origin);
 });
 
@@ -166,6 +176,37 @@ test("deterministic exports and prompt use confirmed records only", () => {
   assert.doesNotMatch(prompt, /알람 발생 조건이 빠져 있음/);
 });
 
+test("build prompt includes confirmed issue notes unless explicitly excluded", () => {
+  const [issue] = fieldPowerAppSuggestionSet.issues;
+  assert.ok(issue);
+
+  const includedWorkspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      issues: [
+        updateXrayObjectStatus(
+          {
+            ...issue,
+            resolutionNote: "사용자가 알람 기준을 먼저 확정했다.",
+          },
+          "accepted",
+        ),
+      ],
+    },
+  });
+  const excludedWorkspace = {
+    ...includedWorkspace,
+    objects: {
+      ...includedWorkspace.objects,
+      issues: [{ ...includedWorkspace.objects.issues[0], includeInPrompt: false }],
+    },
+  };
+
+  assert.match(createBuildPrompt(includedWorkspace, { targetTool: "cursor" }), /User note: 사용자가 알람 기준/);
+  assert.match(createBuildPrompt(includedWorkspace, { targetTool: "cursor" }), /Cursor/);
+  assert.doesNotMatch(createBuildPrompt(excludedWorkspace, { targetTool: "cursor" }), /알람 발생 조건/);
+});
+
 test("markdown export includes the full confirmed structure", () => {
   const workspace = confirmedWorkspace();
   const markdown = exportProjectMarkdown(workspace);
@@ -212,8 +253,25 @@ test("export helpers return stable filenames and preview content", () => {
   assert.equal(getExportFileName(workspace, "appMermaid"), "app-xray-현장-전력설비-관리-앱-app-map.mmd");
   assert.equal(getExportFileName(workspace, "dataMermaid"), "app-xray-현장-전력설비-관리-앱-data-map.mmd");
   assert.equal(getExportFileName(workspace, "json"), "app-xray-현장-전력설비-관리-앱.json");
+  assert.equal(getExportFileName(workspace, "codexPrompt"), "app-xray-현장-전력설비-관리-앱-codex.md");
+  assert.equal(getExportFileName(workspace, "cursorPrompt"), "app-xray-현장-전력설비-관리-앱-cursor.md");
+  assert.equal(getExportFileName(workspace, "bundle"), "app-xray-현장-전력설비-관리-앱-bundle.json");
   assert.equal(getExportContent(workspace, "markdown"), exportProjectMarkdown(workspace));
   assert.equal(getExportContent(workspace, "json"), exportProjectJson(workspace));
+  assert.equal(getExportContent(workspace, "codexPrompt"), createBuildPrompt(workspace, { targetTool: "codex" }));
+});
+
+test("export bundle contains deterministic confirmed-only files", () => {
+  const workspace = confirmedWorkspace();
+  const bundle = JSON.parse(getExportContent(workspace, "bundle"));
+
+  assert.equal(bundle.projectId, workspace.project.id);
+  assert.deepEqual(
+    bundle.files.map((file) => file.exportType),
+    ["markdown", "appMermaid", "dataMermaid", "json", "codexPrompt", "cursorPrompt"],
+  );
+  assert.equal(getExportContent(workspace, "bundle"), getExportContent(workspace, "bundle"));
+  assert.match(bundle.files.find((file) => file.exportType === "json").content, /"objects"/);
 });
 
 test("localStorage repository saves reloads and clears a workspace", () => {
@@ -235,6 +293,46 @@ test("localStorage repository saves reloads and clears a workspace", () => {
   assert.deepEqual(repository.load()?.project, fieldPowerAppProject);
   repository.clear();
   assert.equal(repository.load(), null);
+});
+
+test("localStorage repository stores switches and deletes multiple local projects", () => {
+  const storage = new Map();
+  const repository = createLocalStorageProjectRepository({
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: (key) => storage.delete(key),
+  });
+  const first = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_first", name: "첫 프로젝트" },
+    updatedAt: "2026-06-23T01:00:00.000Z",
+  });
+  const second = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_second", name: "둘 프로젝트" },
+    updatedAt: "2026-06-23T02:00:00.000Z",
+  });
+
+  repository.saveWorkspace(first);
+  repository.saveWorkspace(second);
+  assert.equal(repository.load()?.project.id, "project_second");
+  assert.deepEqual(summarizeProjects(repository.loadCollectionWithStatus().collection).map((project) => project.id), [
+    "project_second",
+    "project_first",
+  ]);
+
+  assert.equal(repository.setActiveProject("project_first").workspace.project.name, "첫 프로젝트");
+  const afterDelete = repository.deleteWorkspace("project_first");
+  assert.equal(afterDelete.activeWorkspace.project.id, "project_second");
+  assert.equal(afterDelete.collection.workspaces.length, 1);
+});
+
+test("localStorage collection loader migrates a legacy single workspace", () => {
+  const workspace = confirmedWorkspace();
+  const result = loadProjectCollection({
+    getItem: (key) => (key === "app-xray.workspace.v1" ? JSON.stringify(workspace) : null),
+  });
+
+  assert.equal(result.activeWorkspace.project.id, fieldPowerAppProject.id);
+  assert.equal(result.collection.workspaces.length, 1);
 });
 
 test("localStorage parse failure opens empty with a visible load error", () => {
@@ -307,7 +405,31 @@ test("merge impact distinguishes added refreshed and preserved confirmed suggest
   assert.equal(impact.preservedConfirmedCount, 1);
   assert.equal(impact.refreshedSuggestedCount, 1);
   assert.equal(impact.addedSuggestedCount, 1);
+  assert.deepEqual(
+    impact.changes.map((change) => change.changeType).sort(),
+    ["added_suggestion", "preserved_confirmed", "refreshed_suggestion"],
+  );
 });
+
+test("AI analysis validation accepts canonical mock and rejects unsafe shapes", () => {
+  assert.equal(validateAiAnalysisResult(mockAnalysisClone()).ok, true);
+
+  const invalidConfidence = mockAnalysisClone();
+  invalidConfidence.screens[0].confidence = 2;
+  assert.deepEqual(validateAiAnalysisResult(invalidConfidence).ok, false);
+
+  const invalidRelation = mockAnalysisClone();
+  invalidRelation.dataRelations[0].targetObjectTempId = "missing_object";
+  assert.match(validateAiAnalysisResult(invalidRelation).errors.join(" "), /존재하지 않는 tempId/);
+
+  const duplicate = mockAnalysisClone();
+  duplicate.screens[1].tempId = duplicate.screens[0].tempId;
+  assert.match(validateAiAnalysisResult(duplicate).errors.join(" "), /중복 tempId/);
+});
+
+function mockAnalysisClone() {
+  return JSON.parse(JSON.stringify(mockFieldPowerAppAnalysis));
+}
 
 function emptySuggestionSetForTest() {
   return {

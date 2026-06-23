@@ -81,7 +81,15 @@ export function exportProjectMarkdown(workspace: ProjectWorkspace, options: Expo
     ),
     "",
     "## Missing Parts",
-    ...emptyAware(issues.map((issue) => `- [${issue.severity}] ${issue.title}: ${issue.description}`)),
+    ...emptyAware(
+      issues.map((issue) =>
+        [
+          `- [${issue.severity}] ${issue.title}: ${issue.description}`,
+          issue.suggestion ? `  - Suggested decision: ${issue.suggestion}` : undefined,
+          issue.resolutionNote ? `  - User note: ${issue.resolutionNote}` : undefined,
+        ].filter(Boolean).join("\n"),
+      ),
+    ),
     "",
   ].join("\n");
 }

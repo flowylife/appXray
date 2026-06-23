@@ -28,6 +28,9 @@ export function ExportPanel({
         <button className={activeExport === "appMermaid" ? "active" : ""} onClick={() => onExportChange("appMermaid")}>App Mermaid</button>
         <button className={activeExport === "dataMermaid" ? "active" : ""} onClick={() => onExportChange("dataMermaid")}>Data Mermaid</button>
         <button className={activeExport === "json" ? "active" : ""} onClick={() => onExportChange("json")}>JSON</button>
+        <button className={activeExport === "codexPrompt" ? "active" : ""} onClick={() => onExportChange("codexPrompt")}>Codex Prompt</button>
+        <button className={activeExport === "cursorPrompt" ? "active" : ""} onClick={() => onExportChange("cursorPrompt")}>Cursor Prompt</button>
+        <button className={activeExport === "bundle" ? "active" : ""} onClick={() => onExportChange("bundle")}>Bundle</button>
       </div>
       <p className="muted export-file-name">파일명: {fileName}</p>
       <pre className="preview">{exportPreview}</pre>

@@ -1,5 +1,6 @@
 import { isConfirmedXrayObject } from "./status.js";
 import type { BaseXrayObject, SuggestionStatus, XrayObject, XraySuggestionSet } from "./types.js";
+import type { AnalysisChange, XraySuggestionBucket } from "./workspace.js";
 
 export function updateXrayObjectStatus<T extends BaseXrayObject>(
   object: T,
@@ -46,6 +47,7 @@ export type SuggestionMergeImpact = {
   addedSuggestedCount: number;
   refreshedSuggestedCount: number;
   preservedConfirmedCount: number;
+  changes: AnalysisChange[];
 };
 
 export function summarizeSuggestionMergeImpact(
@@ -53,17 +55,17 @@ export function summarizeSuggestionMergeImpact(
   incoming: XraySuggestionSet,
 ): SuggestionMergeImpact {
   const impacts = [
-    summarizeCollection(existing.requirements, incoming.requirements),
-    summarizeCollection(existing.screens, incoming.screens),
-    summarizeCollection(existing.features, incoming.features),
-    summarizeCollection(existing.dataObjects, incoming.dataObjects),
-    summarizeCollection(existing.dataFields, incoming.dataFields),
-    summarizeCollection(existing.dataRelations, incoming.dataRelations),
-    summarizeCollection(existing.roles, incoming.roles),
-    summarizeCollection(existing.permissions, incoming.permissions),
-    summarizeCollection(existing.flows, incoming.flows),
-    summarizeCollection(existing.flowSteps, incoming.flowSteps),
-    summarizeCollection(existing.issues, incoming.issues),
+    summarizeCollection("requirements", existing.requirements, incoming.requirements),
+    summarizeCollection("screens", existing.screens, incoming.screens),
+    summarizeCollection("features", existing.features, incoming.features),
+    summarizeCollection("dataObjects", existing.dataObjects, incoming.dataObjects),
+    summarizeCollection("dataFields", existing.dataFields, incoming.dataFields),
+    summarizeCollection("dataRelations", existing.dataRelations, incoming.dataRelations),
+    summarizeCollection("roles", existing.roles, incoming.roles),
+    summarizeCollection("permissions", existing.permissions, incoming.permissions),
+    summarizeCollection("flows", existing.flows, incoming.flows),
+    summarizeCollection("flowSteps", existing.flowSteps, incoming.flowSteps),
+    summarizeCollection("issues", existing.issues, incoming.issues),
   ];
 
   return impacts.reduce(
@@ -72,12 +74,14 @@ export function summarizeSuggestionMergeImpact(
       addedSuggestedCount: total.addedSuggestedCount + impact.addedSuggestedCount,
       refreshedSuggestedCount: total.refreshedSuggestedCount + impact.refreshedSuggestedCount,
       preservedConfirmedCount: total.preservedConfirmedCount + impact.preservedConfirmedCount,
+      changes: [...total.changes, ...impact.changes],
     }),
     {
       incomingSuggestedCount: 0,
       addedSuggestedCount: 0,
       refreshedSuggestedCount: 0,
       preservedConfirmedCount: 0,
+      changes: [],
     },
   );
 }
@@ -99,7 +103,11 @@ function mergeCollection<T extends XrayObject>(existing: T[], incoming: T[]): T[
   return Array.from(result.values());
 }
 
-function summarizeCollection<T extends XrayObject>(existing: T[], incoming: T[]): SuggestionMergeImpact {
+function summarizeCollection<T extends XrayObject>(
+  bucket: XraySuggestionBucket,
+  existing: T[],
+  incoming: T[],
+): SuggestionMergeImpact {
   const existingByKey = new Map(existing.map((object) => [mergeKey(object), object]));
 
   return incoming.reduce<SuggestionMergeImpact>(
@@ -110,6 +118,14 @@ function summarizeCollection<T extends XrayObject>(existing: T[], incoming: T[])
           ...impact,
           incomingSuggestedCount: impact.incomingSuggestedCount + 1,
           addedSuggestedCount: impact.addedSuggestedCount + 1,
+          changes: [
+            ...impact.changes,
+            {
+              bucket,
+              objectId: object.id,
+              changeType: "added_suggestion",
+            },
+          ],
         };
       }
       if (isConfirmedXrayObject(current)) {
@@ -117,12 +133,28 @@ function summarizeCollection<T extends XrayObject>(existing: T[], incoming: T[])
           ...impact,
           incomingSuggestedCount: impact.incomingSuggestedCount + 1,
           preservedConfirmedCount: impact.preservedConfirmedCount + 1,
+          changes: [
+            ...impact.changes,
+            {
+              bucket,
+              objectId: current.id,
+              changeType: "preserved_confirmed",
+            },
+          ],
         };
       }
       return {
         ...impact,
         incomingSuggestedCount: impact.incomingSuggestedCount + 1,
         refreshedSuggestedCount: impact.refreshedSuggestedCount + 1,
+        changes: [
+          ...impact.changes,
+          {
+            bucket,
+            objectId: object.id,
+            changeType: "refreshed_suggestion",
+          },
+        ],
       };
     },
     {
@@ -130,6 +162,7 @@ function summarizeCollection<T extends XrayObject>(existing: T[], incoming: T[])
       addedSuggestedCount: 0,
       refreshedSuggestedCount: 0,
       preservedConfirmedCount: 0,
+      changes: [],
     },
   );
 }

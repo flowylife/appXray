@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { DataObject, Issue, Screen, SuggestionStatus, XrayObject, XraySuggestionSet } from "../domain/types.js";
+import type { AnalysisChange } from "../domain/workspace.js";
 
 export const STATUS_LABELS: Record<SuggestionStatus, string> = {
   suggested: "검토 대기",
@@ -18,15 +19,18 @@ export type EditableXrayObject = Screen | DataObject | Issue;
 
 export function ReviewPanel({
   objects,
+  analysisChanges = [],
   onStatus,
   onEdit,
 }: {
   objects: XraySuggestionSet;
+  analysisChanges?: AnalysisChange[] | undefined;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
   const [filter, setFilter] = useState<ReviewFilter>("all");
   const counts = countByStatus([...objects.screens, ...objects.dataObjects, ...objects.issues]);
+  const changeByObjectId = new Map(analysisChanges.map((change) => [change.objectId, change]));
 
   return (
     <section className="panel" id="review">
@@ -46,9 +50,33 @@ export function ReviewPanel({
           </button>
         ))}
       </div>
-      <ReviewGroup title="화면" bucket="screens" filter={filter} objects={objects.screens} onStatus={onStatus} onEdit={onEdit} />
-      <ReviewGroup title="앱이 저장할 정보" bucket="dataObjects" filter={filter} objects={objects.dataObjects} onStatus={onStatus} onEdit={onEdit} />
-      <ReviewGroup title="빠진 것" bucket="issues" filter={filter} objects={objects.issues} onStatus={onStatus} onEdit={onEdit} />
+      <ReviewGroup
+        title="화면"
+        bucket="screens"
+        filter={filter}
+        objects={objects.screens}
+        changes={changeByObjectId}
+        onStatus={onStatus}
+        onEdit={onEdit}
+      />
+      <ReviewGroup
+        title="앱이 저장할 정보"
+        bucket="dataObjects"
+        filter={filter}
+        objects={objects.dataObjects}
+        changes={changeByObjectId}
+        onStatus={onStatus}
+        onEdit={onEdit}
+      />
+      <ReviewGroup
+        title="빠진 것"
+        bucket="issues"
+        filter={filter}
+        objects={objects.issues}
+        changes={changeByObjectId}
+        onStatus={onStatus}
+        onEdit={onEdit}
+      />
     </section>
   );
 }
@@ -58,6 +86,7 @@ function ReviewGroup({
   bucket,
   objects,
   filter,
+  changes,
   onStatus,
   onEdit,
 }: {
@@ -65,6 +94,7 @@ function ReviewGroup({
   bucket: ObjectBucket;
   filter: ReviewFilter;
   objects: EditableXrayObject[];
+  changes: Map<string, AnalysisChange>;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
@@ -81,6 +111,7 @@ function ReviewGroup({
             bucket={bucket}
             key={object.id}
             object={object}
+            change={changes.get(object.id)}
             onEdit={onEdit}
             onStatus={onStatus}
           />
@@ -93,11 +124,13 @@ function ReviewGroup({
 function ReviewRow({
   bucket,
   object,
+  change,
   onStatus,
   onEdit,
 }: {
   bucket: ObjectBucket;
   object: EditableXrayObject;
+  change?: AnalysisChange | undefined;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
@@ -132,6 +165,22 @@ function ReviewRow({
                 제안
                 <textarea value={draft.suggestion} onChange={(event) => setDraft({ ...draft, suggestion: event.target.value })} rows={2} />
               </label>
+              <label>
+                결정 메모
+                <textarea
+                  value={draft.resolutionNote}
+                  onChange={(event) => setDraft({ ...draft, resolutionNote: event.target.value })}
+                  rows={2}
+                />
+              </label>
+              <label className="checkbox-label">
+                <input
+                  checked={draft.includeInPrompt}
+                  type="checkbox"
+                  onChange={(event) => setDraft({ ...draft, includeInPrompt: event.target.checked })}
+                />
+                빌드 프롬프트에 포함
+              </label>
             </>
           ) : (
             <>
@@ -160,8 +209,12 @@ function ReviewRow({
       <div>
         <strong>{getObjectLabel(object)}</strong>
         <p>{getObjectDescription(object)}</p>
+        {isIssue(object) && object.resolutionNote ? <small className="row-note">결정 메모: {object.resolutionNote}</small> : null}
       </div>
-      <StatusBadge status={object.status} />
+      <div className="badge-stack">
+        {change ? <AnalysisChangeBadge change={change} /> : null}
+        <StatusBadge status={object.status} />
+      </div>
       <div className="row-actions">
         <button type="button" onClick={() => onStatus(bucket, object, "accepted")}>확정</button>
         <button type="button" onClick={startEdit}>수정</button>
@@ -174,6 +227,16 @@ function ReviewRow({
 
 export function StatusBadge({ status }: { status: SuggestionStatus }) {
   return <span className={`badge ${status}`}>{STATUS_LABELS[status]}</span>;
+}
+
+export function AnalysisChangeBadge({ change }: { change: AnalysisChange }) {
+  const labelByType: Record<AnalysisChange["changeType"], string> = {
+    added_suggestion: "새 제안",
+    refreshed_suggestion: "갱신됨",
+    preserved_confirmed: "확정 보존",
+  };
+
+  return <span className={`change-badge ${change.changeType}`}>{labelByType[change.changeType]}</span>;
 }
 
 export function getObjectLabel(object: XrayObject): string {
@@ -197,6 +260,8 @@ function createDraft(object: EditableXrayObject): EditDraft {
       title: object.title,
       description: object.description,
       suggestion: object.suggestion ?? "",
+      resolutionNote: object.resolutionNote ?? "",
+      includeInPrompt: object.includeInPrompt !== false,
       displayName: "",
     };
   }
@@ -206,6 +271,8 @@ function createDraft(object: EditableXrayObject): EditDraft {
     displayName: object.displayName ?? object.name,
     description: object.description ?? "",
     suggestion: "",
+    resolutionNote: "",
+    includeInPrompt: true,
   };
 }
 
@@ -215,6 +282,8 @@ function createPatch(object: EditableXrayObject, draft: EditDraft): Partial<Edit
       title: draft.title.trim() || object.title,
       description: draft.description.trim() || object.description,
       suggestion: draft.suggestion.trim() || undefined,
+      resolutionNote: draft.resolutionNote.trim() || undefined,
+      includeInPrompt: draft.includeInPrompt,
     } as Partial<Issue>;
   }
 
@@ -261,4 +330,6 @@ type EditDraft = {
   displayName: string;
   description: string;
   suggestion: string;
+  resolutionNote: string;
+  includeInPrompt: boolean;
 };
