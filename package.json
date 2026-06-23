@@ -1,0 +1,26 @@
+{
+  "name": "app-xray",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "compile": "tsc",
+    "build": "npm run compile && vite build --outDir app-dist",
+    "dev": "vite --host 127.0.0.1",
+    "test": "npm run compile && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.61.0",
+    "typescript": "^5.5.0",
+    "vite": "^8.0.16"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}
