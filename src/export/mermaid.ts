@@ -11,6 +11,7 @@ export function exportAppMapMermaid(workspace: ProjectWorkspace, options?: Expor
   }
   for (const feature of features) {
     if (!feature.screenId) continue;
+    if (!screens.some((screen) => screen.id === feature.screenId)) continue;
     lines.push(`  ${feature.screenId} --> ${feature.id}["${escapeMermaid(feature.name)}"]`);
   }
 

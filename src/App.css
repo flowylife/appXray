@@ -271,6 +271,16 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
+.review-row.editing {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.edit-fields {
+  display: grid;
+  gap: 0.7rem;
+}
+
 .review-row p,
 .issue p {
   color: #60706b;
@@ -303,6 +313,14 @@ textarea {
 
 .issue {
   grid-template-columns: 80px minmax(0, 1fr) auto;
+}
+
+.issue small {
+  color: #60706b;
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin-top: 0.25rem;
 }
 
 .badge {
@@ -353,6 +371,18 @@ textarea {
   margin-bottom: 0.8rem;
 }
 
+.export-heading {
+  align-items: start;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.export-file-name {
+  font-size: 0.84rem;
+  margin-bottom: 0.7rem;
+}
+
 .segmented button {
   background: #e8eeec;
   color: #21302f;
@@ -385,9 +415,14 @@ textarea {
 
   .topbar,
   .review-row,
+  .review-row.editing,
   .issue {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .export-heading {
+    display: grid;
   }
 
   .topbar {

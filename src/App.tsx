@@ -1,35 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
+import { ExportPanel } from "./components/ExportPanel.js";
+import { MapPanels, MissingParts } from "./components/MapPanels.js";
+import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./components/ReviewPanel.js";
 import { convertAiAnalysisToXrayObjects } from "./domain/convert.js";
 import { editXrayObject, mergeAiSuggestionsPreservingConfirmed, updateXrayObjectStatus } from "./domain/lifecycle.js";
 import { isConfirmedXrayObject } from "./domain/status.js";
-import type { BaseXrayObject, DataObject, Issue, Screen, SuggestionStatus, XrayObject, XraySuggestionSet } from "./domain/types.js";
+import type { BaseXrayObject, SuggestionStatus, XrayObject, XraySuggestionSet } from "./domain/types.js";
 import type { ProjectWorkspace } from "./domain/workspace.js";
 import { createEmptySuggestionSet } from "./domain/workspace.js";
-import { exportProjectJson } from "./export/json.js";
-import { exportProjectMarkdown } from "./export/markdown.js";
-import { exportAppMapMermaid, exportDataMapMermaid } from "./export/mermaid.js";
+import type { ExportType } from "./export/export-content.js";
 import { fieldPowerAppSourceDocument, mockFieldPowerAppAnalysis } from "./fixtures/field-power-app.js";
 import { createBuildPrompt } from "./prompt/build-prompt.js";
 import { createLocalStorageProjectRepository } from "./storage/project-repository.js";
 
 const DEFAULT_PRD = fieldPowerAppSourceDocument.content;
-const STATUS_LABELS: Record<SuggestionStatus, string> = {
-  suggested: "검토 대기",
-  accepted: "확정",
-  edited: "수정 확정",
-  rejected: "제외",
-  deferred: "나중에 결정",
-};
-
-type ObjectBucket = keyof XraySuggestionSet;
 
 export default function App() {
   const repository = useMemo(() => createLocalStorageProjectRepository(), []);
-  const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(() => repository.load());
+  const initialLoad = useMemo(() => repository.loadWithStatus(), [repository]);
+  const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(() => initialLoad.workspace);
   const [projectName, setProjectName] = useState(workspace?.project.name ?? "현장 전력설비 관리 앱");
   const [sourceText, setSourceText] = useState(workspace?.sourceDocuments.at(0)?.content ?? DEFAULT_PRD);
-  const [activeExport, setActiveExport] = useState<"markdown" | "appMermaid" | "dataMermaid" | "json">("markdown");
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [activeExport, setActiveExport] = useState<ExportType>("markdown");
+  const [saveError, setSaveError] = useState<string | null>(initialLoad.error ?? null);
 
   useEffect(() => {
     if (!workspace) return;
@@ -43,7 +36,6 @@ export default function App() {
 
   const confirmedCounts = workspace ? countConfirmed(workspace.objects) : 0;
   const totalCounts = workspace ? countAll(workspace.objects) : 0;
-  const exportPreview = workspace ? createExportPreview(workspace, activeExport) : "";
   const buildPrompt = workspace ? createBuildPrompt(workspace, { targetTool: "codex" }) : "";
 
   function createProject() {
@@ -134,18 +126,8 @@ export default function App() {
     replaceObject(bucket, object.id, updateXrayObjectStatus(object, status));
   }
 
-  function editObject(bucket: ObjectBucket, object: XrayObject) {
-    const currentLabel = getObjectLabel(object);
-    const nextLabel = window.prompt("사용자가 확정할 이름을 입력하세요.", currentLabel);
-    if (!nextLabel) return;
-
-    if ("displayName" in object) {
-      replaceObject(bucket, object.id, editXrayObject(object, { displayName: nextLabel } as never));
-      return;
-    }
-    if ("title" in object) {
-      replaceObject(bucket, object.id, editXrayObject(object, { title: nextLabel } as never));
-    }
+  function editObject(bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) {
+    replaceObject(bucket, object.id, editXrayObject(object, patch as never));
   }
 
   function replaceObject(bucket: ObjectBucket, id: string, nextObject: XrayObject) {
@@ -164,6 +146,9 @@ export default function App() {
   }
 
   function resetWorkspace() {
+    if (workspace && !window.confirm("현재 로컬 프로젝트를 초기화할까요? 이 작업은 되돌릴 수 없습니다.")) {
+      return;
+    }
     repository.clear();
     setWorkspace(null);
   }
@@ -231,32 +216,9 @@ export default function App() {
 
         {workspace ? (
           <>
-            <section className="panel" id="review">
-              <div className="section-heading">
-                <span>분석 검토</span>
-                <h2>AI 제안 초안</h2>
-              </div>
-              <ReviewGroup title="화면" bucket="screens" objects={workspace.objects.screens} onStatus={updateObjectStatus} onEdit={editObject} />
-              <ReviewGroup title="앱이 저장할 정보" bucket="dataObjects" objects={workspace.objects.dataObjects} onStatus={updateObjectStatus} onEdit={editObject} />
-              <ReviewGroup title="빠진 것" bucket="issues" objects={workspace.objects.issues} onStatus={updateObjectStatus} onEdit={editObject} />
-            </section>
+            <ReviewPanel objects={workspace.objects} onStatus={updateObjectStatus} onEdit={editObject} />
 
-            <section className="map-grid">
-              <div className="panel" id="app-map">
-                <div className="section-heading">
-                  <span>앱 지도</span>
-                  <h2>화면과 기능</h2>
-                </div>
-                <AppMap screens={workspace.objects.screens} />
-              </div>
-              <div className="panel" id="data-map">
-                <div className="section-heading">
-                  <span>정보 구조</span>
-                  <h2>앱이 저장할 정보</h2>
-                </div>
-                <DataMap objects={workspace.objects.dataObjects} />
-              </div>
-            </section>
+            <MapPanels dataObjects={workspace.objects.dataObjects} screens={workspace.objects.screens} />
 
             <section className="panel" id="missing">
               <div className="section-heading">
@@ -274,19 +236,7 @@ export default function App() {
               <pre className="preview">{buildPrompt}</pre>
             </section>
 
-            <section className="panel" id="export">
-              <div className="section-heading">
-                <span>내보내기</span>
-                <h2>확정 데이터 기반 export</h2>
-              </div>
-              <div className="segmented" role="tablist" aria-label="Export type">
-                <button className={activeExport === "markdown" ? "active" : ""} onClick={() => setActiveExport("markdown")}>Markdown</button>
-                <button className={activeExport === "appMermaid" ? "active" : ""} onClick={() => setActiveExport("appMermaid")}>App Mermaid</button>
-                <button className={activeExport === "dataMermaid" ? "active" : ""} onClick={() => setActiveExport("dataMermaid")}>Data Mermaid</button>
-                <button className={activeExport === "json" ? "active" : ""} onClick={() => setActiveExport("json")}>JSON</button>
-              </div>
-              <pre className="preview">{exportPreview}</pre>
-            </section>
+            <ExportPanel activeExport={activeExport} onExportChange={setActiveExport} workspace={workspace} />
           </>
         ) : (
           <section className="empty-state">
@@ -299,95 +249,6 @@ export default function App() {
   );
 }
 
-function ReviewGroup({
-  title,
-  bucket,
-  objects,
-  onStatus,
-  onEdit,
-}: {
-  title: string;
-  bucket: ObjectBucket;
-  objects: XrayObject[];
-  onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
-  onEdit: (bucket: ObjectBucket, object: XrayObject) => void;
-}) {
-  return (
-    <div className="review-group">
-      <h3>{title}</h3>
-      <div className="review-list">
-        {objects.length === 0 ? <p className="muted">아직 제안이 없습니다.</p> : null}
-        {objects.map((object) => (
-          <article className="review-row" key={object.id}>
-            <div>
-              <strong>{getObjectLabel(object)}</strong>
-              <p>{getObjectDescription(object)}</p>
-            </div>
-            <StatusBadge status={object.status} />
-            <div className="row-actions">
-              <button onClick={() => onStatus(bucket, object, "accepted")}>확정</button>
-              <button onClick={() => onEdit(bucket, object)}>수정</button>
-              <button className="secondary" onClick={() => onStatus(bucket, object, "deferred")}>나중</button>
-              <button className="danger" onClick={() => onStatus(bucket, object, "rejected")}>제외</button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AppMap({ screens }: { screens: Screen[] }) {
-  return (
-    <div className="node-list">
-      {screens.map((screen) => (
-        <div className={`node ${isConfirmedXrayObject(screen) ? "confirmed" : ""}`} key={screen.id}>
-          <span>{screen.screenType}</span>
-          <strong>{screen.displayName ?? screen.name}</strong>
-          <StatusBadge status={screen.status} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DataMap({ objects }: { objects: DataObject[] }) {
-  return (
-    <div className="node-list">
-      {objects.map((object) => (
-        <div className={`node ${isConfirmedXrayObject(object) ? "confirmed" : ""}`} key={object.id}>
-          <span>{object.objectType}</span>
-          <strong>{object.displayName ?? object.name}</strong>
-          <StatusBadge status={object.status} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MissingParts({ issues }: { issues: Issue[] }) {
-  if (issues.length === 0) return <p className="muted">아직 빠진 것이 없습니다.</p>;
-
-  return (
-    <div className="issue-list">
-      {issues.map((issue) => (
-        <article className="issue" key={issue.id}>
-          <span>{issue.severity}</span>
-          <div>
-            <strong>{issue.title}</strong>
-            <p>{issue.description}</p>
-          </div>
-          <StatusBadge status={issue.status} />
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: SuggestionStatus }) {
-  return <span className={`badge ${status}`}>{STATUS_LABELS[status]}</span>;
-}
-
 function countAll(objects: XraySuggestionSet): number {
   return Object.values(objects).reduce((total, collection) => total + collection.length, 0);
 }
@@ -397,26 +258,4 @@ function countConfirmed(objects: XraySuggestionSet): number {
     (total, collection: BaseXrayObject[]) => total + collection.filter(isConfirmedXrayObject).length,
     0,
   );
-}
-
-function createExportPreview(workspace: ProjectWorkspace, type: "markdown" | "appMermaid" | "dataMermaid" | "json"): string {
-  if (type === "markdown") return exportProjectMarkdown(workspace);
-  if (type === "appMermaid") return exportAppMapMermaid(workspace);
-  if (type === "dataMermaid") return exportDataMapMermaid(workspace);
-  return exportProjectJson(workspace);
-}
-
-function getObjectLabel(object: XrayObject): string {
-  if ("displayName" in object && object.displayName) return object.displayName;
-  if ("title" in object) return object.title;
-  if ("name" in object) return object.name;
-  if ("text" in object) return object.text;
-  return object.id;
-}
-
-function getObjectDescription(object: XrayObject): string {
-  if ("description" in object && object.description) return object.description;
-  if ("text" in object) return object.text;
-  if ("actionDescription" in object) return object.actionDescription;
-  return "설명이 없습니다.";
 }

@@ -1,6 +1,6 @@
 import { getDefaultExportableObjects } from "../domain/status.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
-import type { SuggestionStatus } from "../domain/types.js";
+import type { DataObject, SuggestionStatus } from "../domain/types.js";
 
 export type ExportOptions = {
   includeStatuses?: SuggestionStatus[];
@@ -9,9 +9,16 @@ export type ExportOptions = {
 const DEFAULT_EXPORT_STATUSES: SuggestionStatus[] = ["accepted", "edited"];
 
 export function exportProjectMarkdown(workspace: ProjectWorkspace, options: ExportOptions = {}): string {
+  const requirements = exportable(workspace.objects.requirements, options);
   const screens = exportable(workspace.objects.screens, options);
+  const features = exportable(workspace.objects.features, options);
   const dataObjects = exportable(workspace.objects.dataObjects, options);
+  const dataFields = exportable(workspace.objects.dataFields, options);
+  const dataRelations = exportable(workspace.objects.dataRelations, options);
+  const roles = exportable(workspace.objects.roles, options);
+  const permissions = exportable(workspace.objects.permissions, options);
   const flows = exportable(workspace.objects.flows, options);
+  const flowSteps = exportable(workspace.objects.flowSteps, options);
   const issues = exportable(workspace.objects.issues, options);
 
   return [
@@ -19,17 +26,62 @@ export function exportProjectMarkdown(workspace: ProjectWorkspace, options: Expo
     "",
     workspace.project.description ?? "No description.",
     "",
+    "## Requirements",
+    ...emptyAware(requirements.map((requirement) => `- [${requirement.requirementType}] ${requirement.text}`)),
+    "",
     "## App Map",
-    ...screens.map((screen) => `- ${label(screen.displayName, screen.name)} (${screen.screenType})`),
+    ...emptyAware(
+      screens.map((screen) => {
+        const screenFeatures = features.filter((feature) => feature.screenId === screen.id);
+        return [
+          `- ${label(screen.displayName, screen.name)} (${screen.screenType})`,
+          ...screenFeatures.map((feature) => `  - ${feature.name}: ${feature.description ?? feature.actionType}`),
+        ].join("\n");
+      }),
+    ),
     "",
     "## Data Map",
-    ...dataObjects.map((object) => `- ${label(object.displayName, object.name)} (${object.objectType})`),
+    ...emptyAware(
+      dataObjects.map((object) =>
+        [
+          `- ${label(object.displayName, object.name)} (${object.objectType})`,
+          ...dataFields
+            .filter((field) => field.dataObjectId === object.id)
+            .map((field) => `  - ${field.name}: ${field.fieldType}${field.required ? " required" : ""}`),
+          ...dataRelations
+            .filter((relation) => relation.sourceObjectId === object.id && hasConfirmedTarget(dataObjects, relation.targetObjectId))
+            .map((relation) => `  - ${relation.relationType} -> ${objectName(dataObjects, relation.targetObjectId)}`),
+        ].join("\n"),
+      ),
+    ),
+    "",
+    "## Roles and Permissions",
+    ...emptyAware(
+      roles.map((role) =>
+        [
+          `- ${label(role.displayName, role.name)}`,
+          ...permissions
+            .filter((permission) => permission.roleId === role.id)
+            .map((permission) => `  - ${permission.allowed ? "allow" : "deny"} ${permission.action} ${permission.targetType}`),
+        ].join("\n"),
+      ),
+    ),
     "",
     "## User Flows",
-    ...flows.map((flow) => `- ${flow.name}`),
+    ...emptyAware(
+      flows.map((flow) =>
+        [
+          `- ${flow.name}: ${flow.description ?? "No description"}`,
+          ...flowSteps
+            .filter((step) => step.flowId === flow.id)
+            .sort((a, b) => a.stepOrder - b.stepOrder)
+            .map((step) => `  ${step.stepOrder}. ${step.actionDescription}`),
+        ].join("\n"),
+      ),
+    ),
     "",
     "## Missing Parts",
-    ...issues.map((issue) => `- [${issue.severity}] ${issue.title}: ${issue.description}`),
+    ...emptyAware(issues.map((issue) => `- [${issue.severity}] ${issue.title}: ${issue.description}`)),
     "",
   ].join("\n");
 }
@@ -47,4 +99,17 @@ export function exportable<T extends { status: SuggestionStatus }>(
 
 function label(displayName: string | undefined, name: string): string {
   return displayName ? `${displayName} / ${name}` : name;
+}
+
+function emptyAware(lines: string[]): string[] {
+  return lines.length > 0 ? lines : ["- None"];
+}
+
+function hasConfirmedTarget(objects: DataObject[], targetObjectId: string): boolean {
+  return objects.some((object) => object.id === targetObjectId);
+}
+
+function objectName(objects: DataObject[], objectId: string): string {
+  const object = objects.find((candidate) => candidate.id === objectId);
+  return object?.displayName ?? object?.name ?? objectId;
 }
