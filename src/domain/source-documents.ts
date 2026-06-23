@@ -11,19 +11,21 @@ export function createSourceDocumentVersion({
   createdAt,
   id,
   previousVersion = 0,
+  sourceType = "text",
 }: {
   project: Project;
   content: string;
   createdAt: string;
   id: string;
   previousVersion?: number;
+  sourceType?: SourceDocument["sourceType"] | undefined;
 }): SourceDocument {
   return {
     id,
     projectId: project.id,
     title: "아이디어 / PRD",
     content,
-    sourceType: "text",
+    sourceType,
     version: previousVersion + 1,
     createdAt,
   };
@@ -32,7 +34,7 @@ export function createSourceDocumentVersion({
 export function appendSourceDocumentVersion(
   workspace: ProjectWorkspace,
   content: string,
-  options: { id: string; createdAt: string },
+  options: { id: string; createdAt: string; sourceType?: SourceDocument["sourceType"] | undefined },
 ): ProjectWorkspace {
   const trimmedContent = content.trim();
   const latest = getLatestSourceDocument(workspace);
@@ -44,6 +46,7 @@ export function appendSourceDocumentVersion(
     createdAt: options.createdAt,
     id: options.id,
     previousVersion: latest?.version ?? 0,
+    sourceType: options.sourceType,
   });
 
   return {

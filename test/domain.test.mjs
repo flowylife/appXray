@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { validateAiAnalysisResult } from "../dist/ai/adapter.js";
+import { loadAiProviderConfig, saveAiProviderConfig, toPublicAiProviderConfig } from "../dist/ai/settings.js";
 import { compareSuggestionSets } from "../dist/domain/diff.js";
+import { parseAppRoute, projectRoute } from "../dist/domain/routes.js";
 import { fieldPowerAppSuggestionSet, mockFieldPowerAppAnalysis } from "../dist/fixtures/field-power-app.js";
 import {
   updateXrayObjectStatus,
@@ -15,13 +17,16 @@ import {
   createSourceDocumentVersion,
   getLatestSourceDocument,
 } from "../dist/domain/source-documents.js";
+import { classifySourceFile } from "../dist/domain/source-import.js";
 import {
   getDefaultExportableObjects,
   isConfirmedStatus,
   isConfirmedXrayObject,
 } from "../dist/domain/status.js";
 import { validateWorkspace } from "../dist/domain/validation.js";
+import { applyTemplateToWorkspace, validateTemplateManifest } from "../dist/domain/template.js";
 import { fieldPowerAppProject, fieldPowerAppSourceDocument } from "../dist/fixtures/field-power-app.js";
+import { fieldPowerTemplate } from "../dist/fixtures/field-power-template.js";
 import { exportGithubIssuesMarkdown } from "../dist/export/github-issues.js";
 import { exportProjectJson } from "../dist/export/json.js";
 import { exportProjectMarkdown } from "../dist/export/markdown.js";
@@ -34,6 +39,7 @@ import {
   loadProjectWorkspace,
   summarizeProjects,
 } from "../dist/storage/project-repository.js";
+import { importWorkspaceBackup, serializeWorkspaceBackup } from "../dist/storage/workspace-backup.js";
 
 test("confirmed status only includes accepted and edited", () => {
   assert.equal(isConfirmedStatus("suggested"), false);
@@ -432,6 +438,133 @@ test("build prompt includes validation warnings but excludes rejected issues", (
   assert.match(prompt, /Export validation warnings/);
   assert.match(prompt, /확정된 필드가 없습니다/);
   assert.doesNotMatch(prompt, /알람 발생 조건이 빠져 있음/);
+});
+
+test("source import classifies markdown txt and rejects pdf for now", () => {
+  assert.deepEqual(classifySourceFile("idea.md", "# PRD").sourceType, "markdown");
+  assert.deepEqual(classifySourceFile("idea.txt", "PRD").sourceType, "txt");
+  assert.equal(classifySourceFile("idea.pdf", "").ok, false);
+});
+
+test("source document versions preserve imported source type", () => {
+  const next = appendSourceDocumentVersion(confirmedWorkspace(), "# Markdown PRD", {
+    id: "src_markdown",
+    createdAt: "2026-06-23T04:00:00.000Z",
+    sourceType: "markdown",
+  });
+
+  assert.equal(getLatestSourceDocument(next)?.sourceType, "markdown");
+});
+
+test("template validation catches broken references", () => {
+  const broken = {
+    ...fieldPowerTemplate,
+    dataRelations: [{ ...fieldPowerTemplate.dataRelations[0], targetObjectId: "missing" }],
+  };
+  const report = validateTemplateManifest(broken);
+
+  assert.equal(report.isValid, false);
+  assert.ok(report.errors.some((issue) => issue.code === "broken_template_relation"));
+});
+
+test("template apply imports suggested objects and preserves confirmed structures", () => {
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [updateXrayObjectStatus(fieldPowerAppSuggestionSet.dataObjects[0], "accepted")],
+    },
+  });
+  const result = applyTemplateToWorkspace(workspace, fieldPowerTemplate, "2026-06-23T05:00:00.000Z");
+
+  assert.equal(result.validation.isValid, true);
+  assert.equal(result.workspace.appliedTemplates[0].templateId, fieldPowerTemplate.templateId);
+  assert.equal(result.workspace.objects.dataObjects[0].status, "accepted");
+  assert.ok(result.workspace.objects.screens.every((screen) => screen.status === "suggested"));
+  assert.ok(result.workspace.objects.screens.every((screen) => screen.origin?.kind === "template"));
+});
+
+test("prompt target supports Codex Cursor Lovable Replit and Bolt", () => {
+  const workspace = confirmedWorkspace();
+
+  for (const targetTool of ["codex", "cursor", "lovable", "replit", "bolt"]) {
+    const prompt = createBuildPrompt(workspace, { targetTool });
+    assert.match(prompt, new RegExp(targetTool === "codex" ? "Codex" : targetTool[0].toUpperCase() + targetTool.slice(1)));
+    assert.doesNotMatch(prompt, /제외된 항목/);
+  }
+});
+
+test("audit export mode includes suggested and rejected records only when requested", () => {
+  const [screen] = fieldPowerAppSuggestionSet.screens;
+  assert.ok(screen);
+  const workspace = {
+    ...confirmedWorkspace(),
+    objects: {
+      ...emptySuggestionSetForTest(),
+      screens: [
+        updateXrayObjectStatus({ ...screen, id: "screen_confirmed", displayName: "확정 화면" }, "accepted"),
+        { ...screen, id: "screen_suggested", displayName: "검토 화면", status: "suggested" },
+        updateXrayObjectStatus({ ...screen, id: "screen_rejected", displayName: "제외 화면" }, "rejected"),
+      ],
+    },
+  };
+
+  assert.doesNotMatch(getExportContent(workspace, "markdown"), /검토 화면/);
+  assert.match(getExportContent(workspace, "markdown", { mode: "auditTrail" }), /검토 화면/);
+  assert.match(getExportContent(workspace, "json", { mode: "auditTrail", includeValidationAppendix: true }), /"validation"/);
+});
+
+test("AI provider settings persist locally without exposing API key publicly", () => {
+  const storage = new Map();
+  const adapter = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+  };
+
+  saveAiProviderConfig(
+    {
+      provider: "openai",
+      modelName: "gpt-test",
+      apiKey: "secret-value",
+      apiKeyPresent: true,
+    },
+    adapter,
+  );
+
+  const loaded = loadAiProviderConfig(adapter);
+  assert.equal(loaded.apiKey, "secret-value");
+  assert.equal(toPublicAiProviderConfig(loaded).apiKey, undefined);
+  assert.equal(toPublicAiProviderConfig(loaded).apiKeyPresent, true);
+});
+
+test("hash routes parse project sections and settings", () => {
+  assert.deepEqual(parseAppRoute("#/projects"), { name: "projects" });
+  assert.deepEqual(parseAppRoute("#/settings/ai"), { name: "aiSettings" });
+  assert.deepEqual(parseAppRoute(projectRoute("project_1", "review")), {
+    name: "projectSection",
+    projectId: "project_1",
+    section: "review",
+  });
+});
+
+test("workspace backup import rejects malformed input and preserves confirmed objects", () => {
+  assert.equal(importWorkspaceBackup("{bad-json", null).ok, false);
+
+  const current = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      screens: [updateXrayObjectStatus(fieldPowerAppSuggestionSet.screens[0], "accepted")],
+    },
+  });
+  const imported = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      screens: [{ ...fieldPowerAppSuggestionSet.screens[0], displayName: "import tried overwrite", status: "suggested" }],
+    },
+  });
+  const result = importWorkspaceBackup(serializeWorkspaceBackup(imported), current);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.workspace.objects.screens[0].displayName, current.objects.screens[0].displayName);
 });
 
 test("localStorage repository saves reloads and clears a workspace", () => {

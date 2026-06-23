@@ -1,9 +1,13 @@
 import { getDefaultExportableObjects } from "../domain/status.js";
+import { validateWorkspace } from "../domain/validation.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
 import type { DataObject, SuggestionStatus } from "../domain/types.js";
+import type { ExportMode } from "./export-content.js";
 
 export type ExportOptions = {
   includeStatuses?: SuggestionStatus[];
+  exportMode?: ExportMode;
+  includeValidationAppendix?: boolean | undefined;
 };
 
 const DEFAULT_EXPORT_STATUSES: SuggestionStatus[] = ["accepted", "edited"];
@@ -20,9 +24,12 @@ export function exportProjectMarkdown(workspace: ProjectWorkspace, options: Expo
   const flows = exportable(workspace.objects.flows, options);
   const flowSteps = exportable(workspace.objects.flowSteps, options);
   const issues = exportable(workspace.objects.issues, options);
+  const validation = validateWorkspace(workspace);
 
   return [
     `# ${workspace.project.name}`,
+    "",
+    `Export mode: ${options.exportMode ?? "confirmedOnly"}`,
     "",
     workspace.project.description ?? "No description.",
     "",
@@ -91,6 +98,14 @@ export function exportProjectMarkdown(workspace: ProjectWorkspace, options: Expo
       ),
     ),
     "",
+    ...(options.includeValidationAppendix ? [
+      "## Export Validation",
+      ...emptyAware([
+        ...validation.errors.map((issue) => `- ERROR: ${issue.message}`),
+        ...validation.warnings.map((issue) => `- WARNING: ${issue.message}`),
+      ]),
+      "",
+    ] : []),
   ].join("\n");
 }
 

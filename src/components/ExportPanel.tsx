@@ -1,7 +1,10 @@
+import { useState } from "react";
 import type { ExportType } from "../export/export-content.js";
-import { downloadTextFile, getExportContent, getExportFileName } from "../export/export-content.js";
+import { downloadTextFile, getExportContent, getExportFileName, type ExportMode } from "../export/export-content.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
 import { validateWorkspace } from "../domain/validation.js";
+
+const UPCOMING_EXPORTS = ["PDF", "Notion", "Linear", "Jira", "Supabase", "Figma"];
 
 export function ExportPanel({
   activeExport,
@@ -12,7 +15,9 @@ export function ExportPanel({
   workspace: ProjectWorkspace;
   onExportChange: (type: ExportType) => void;
 }) {
-  const exportPreview = getExportContent(workspace, activeExport);
+  const [exportMode, setExportMode] = useState<ExportMode>("confirmedOnly");
+  const [includeValidationAppendix, setIncludeValidationAppendix] = useState(false);
+  const exportPreview = getExportContent(workspace, activeExport, { mode: exportMode, includeValidationAppendix });
   const fileName = getExportFileName(workspace, activeExport);
   const validation = validateWorkspace(workspace);
 
@@ -53,6 +58,20 @@ export function ExportPanel({
           </div>
         ) : null}
       </div>
+      <div className="export-options" aria-label="Export options">
+        <div className="segmented">
+          <button className={exportMode === "confirmedOnly" ? "active" : ""} type="button" onClick={() => setExportMode("confirmedOnly")}>확정만</button>
+          <button className={exportMode === "auditTrail" ? "active" : ""} type="button" onClick={() => setExportMode("auditTrail")}>검토 이력 포함</button>
+        </div>
+        <label className="checkbox-label">
+          <input
+            checked={includeValidationAppendix}
+            type="checkbox"
+            onChange={(event) => setIncludeValidationAppendix(event.target.checked)}
+          />
+          내보내기 점검 결과를 함께 포함
+        </label>
+      </div>
       <div className="segmented" role="tablist" aria-label="Export type">
         <button className={activeExport === "markdown" ? "active" : ""} onClick={() => onExportChange("markdown")}>Markdown</button>
         <button className={activeExport === "appMermaid" ? "active" : ""} onClick={() => onExportChange("appMermaid")}>App Mermaid</button>
@@ -63,6 +82,7 @@ export function ExportPanel({
         <button className={activeExport === "githubIssues" ? "active" : ""} onClick={() => onExportChange("githubIssues")}>GitHub Issues</button>
         <button className={activeExport === "bundle" ? "active" : ""} onClick={() => onExportChange("bundle")}>Bundle</button>
       </div>
+      <p className="muted export-file-name">지원 예정: {UPCOMING_EXPORTS.join(", ")}</p>
       <p className="muted export-file-name">파일명: {fileName}</p>
       <pre className="preview">{exportPreview}</pre>
     </section>

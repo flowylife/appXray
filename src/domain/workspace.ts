@@ -2,6 +2,14 @@ import type { AiBuildStepSuggestion } from "./ai-analysis.js";
 import type { StructureDiffReport } from "./diff.js";
 import type { Project, SourceDocument, XraySuggestionSet } from "./types.js";
 
+export type AppliedTemplateMetadata = {
+  templateId: string;
+  name: string;
+  version: string;
+  appliedAt: string;
+  warningCount: number;
+};
+
 export type ProjectWorkspace = {
   project: Project;
   sourceDocuments: SourceDocument[];
@@ -10,6 +18,7 @@ export type ProjectWorkspace = {
   lastAnalysis?: WorkspaceAnalysisSummary;
   analysisHistory?: WorkspaceAnalysisSummary[];
   lastStructureDiff?: StructureDiffReport;
+  appliedTemplates?: AppliedTemplateMetadata[];
   updatedAt: string;
 };
 

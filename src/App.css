@@ -19,6 +19,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -57,6 +58,22 @@ button.secondary:hover {
 button.danger {
   background: #f3e4df;
   color: #8f321e;
+}
+
+.file-button {
+  align-items: center;
+  background: #e8eeec;
+  border-radius: 8px;
+  color: #21302f;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.88rem;
+  font-weight: 800;
+  padding: 0.68rem 0.9rem;
+}
+
+.file-button input {
+  display: none;
 }
 
 .app-shell {
@@ -273,6 +290,7 @@ label {
 }
 
 input,
+select,
 textarea {
   background: #fbfcfc;
   border: 1px solid #cfdbd7;
@@ -333,6 +351,23 @@ textarea {
   font-weight: 700;
   gap: 0.45rem;
   margin-top: 0.6rem;
+}
+
+.diff-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.diff-detail span {
+  background: #f7faf9;
+  border: 1px solid #dfe7e4;
+  border-radius: 999px;
+  color: #60706b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.32rem 0.55rem;
 }
 
 .diff-summary strong {
@@ -432,6 +467,39 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.map-filter,
+.map-edge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.7rem;
+}
+
+.map-filter button {
+  padding: 0.45rem 0.65rem;
+}
+
+.map-filter button.active {
+  background: #096b68;
+  color: #ffffff;
+}
+
+.map-edge-list span {
+  background: #edf3f1;
+  border: 1px solid #dce8e4;
+  border-radius: 999px;
+  color: #40504c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.32rem 0.55rem;
+}
+
+.map-edge-list span.broken {
+  background: #f9e7e2;
+  border-color: #efc7bd;
+  color: #842b19;
+}
+
 .node {
   align-items: start;
   color: #172026;
@@ -440,6 +508,14 @@ textarea {
 
 .node.confirmed {
   border-color: #91c9c4;
+}
+
+.node.status-rejected {
+  opacity: 0.62;
+}
+
+.node.status-suggested {
+  border-color: #f1d695;
 }
 
 .node.selected {
@@ -592,6 +668,16 @@ textarea {
   margin-top: -0.25rem;
 }
 
+.prompt-step-select,
+.export-options {
+  margin-bottom: 0.85rem;
+}
+
+.export-options {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .export-heading {
   align-items: start;
   display: flex;
@@ -636,6 +722,42 @@ textarea {
 .build-plan-list {
   display: grid;
   gap: 0.65rem;
+}
+
+.template-preview {
+  align-items: center;
+  background: #fbfcfc;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.9rem;
+}
+
+.template-preview p,
+.template-preview small {
+  color: #60706b;
+  display: block;
+  line-height: 1.45;
+  margin-top: 0.2rem;
+}
+
+.applied-template-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.applied-template-list span {
+  background: #f2f7f5;
+  border: 1px solid #dce8e4;
+  border-radius: 999px;
+  color: #40504c;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem;
 }
 
 .build-plan-step {
@@ -692,6 +814,12 @@ textarea {
   color: #842b19;
 }
 
+.notice.info {
+  background: #e7f1ef;
+  color: #205e5a;
+  margin-top: 0.75rem;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -710,6 +838,11 @@ textarea {
   .build-plan-step {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .template-preview {
+    align-items: stretch;
+    display: grid;
   }
 
   .issue-actions,

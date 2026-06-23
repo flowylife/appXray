@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { isConfirmedXrayObject } from "../domain/status.js";
-import type { DataField, DataObject, DataRelation, Feature, Issue, Screen } from "../domain/types.js";
-import { StatusBadge } from "./ReviewPanel.js";
+import type { DataField, DataObject, DataRelation, Feature, Issue, Screen, SuggestionStatus } from "../domain/types.js";
+import { STATUS_LABELS, StatusBadge } from "./ReviewPanel.js";
+
+type MapStatusFilter = "all" | SuggestionStatus;
+const MAP_FILTERS: MapStatusFilter[] = ["all", "suggested", "accepted", "edited", "rejected", "deferred"];
 
 export function MapPanels({
   screens,
@@ -69,21 +72,34 @@ export function MissingParts({
 }
 
 function AppMap({ screens, features }: { screens: Screen[]; features: Feature[] }) {
+  const [filter, setFilter] = useState<MapStatusFilter>("all");
+  const visibleScreens = filterByStatus(screens, filter);
+  const visibleScreenIds = new Set(visibleScreens.map((screen) => screen.id));
+  const visibleFeatures = features.filter((feature) => filter === "all" || feature.status === filter);
   const [selectedScreenId, setSelectedScreenId] = useState(screens[0]?.id ?? "");
   const selectedScreen = useMemo(
-    () => screens.find((screen) => screen.id === selectedScreenId) ?? screens[0],
-    [screens, selectedScreenId],
+    () => visibleScreens.find((screen) => screen.id === selectedScreenId) ?? visibleScreens[0],
+    [visibleScreens, selectedScreenId],
   );
-  const selectedFeatures = selectedScreen ? features.filter((feature) => feature.screenId === selectedScreen.id) : [];
+  const selectedFeatures = selectedScreen ? visibleFeatures.filter((feature) => feature.screenId === selectedScreen.id) : [];
 
   if (screens.length === 0) return <p className="muted">아직 화면 제안이 없습니다.</p>;
 
   return (
-    <div className="map-detail-grid">
+    <>
+      <MapFilter filter={filter} onFilter={setFilter} />
+      <div className="map-edge-list">
+        {visibleFeatures.map((feature) => (
+          <span className={feature.screenId && visibleScreenIds.has(feature.screenId) ? "" : "broken"} key={feature.id}>
+            화면 → 기능 · {feature.name}
+          </span>
+        ))}
+      </div>
+      <div className="map-detail-grid">
       <div className="node-list">
-        {screens.map((screen) => (
+        {visibleScreens.map((screen) => (
           <button
-            className={`node ${isConfirmedXrayObject(screen) ? "confirmed" : ""} ${selectedScreen?.id === screen.id ? "selected" : ""}`}
+            className={`node ${statusClass(screen.status)} ${isConfirmedXrayObject(screen) ? "confirmed" : ""} ${selectedScreen?.id === screen.id ? "selected" : ""}`}
             key={screen.id}
             type="button"
             onClick={() => setSelectedScreenId(screen.id)}
@@ -109,6 +125,7 @@ function AppMap({ screens, features }: { screens: Screen[]; features: Feature[] 
         </div>
       ) : null}
     </div>
+    </>
   );
 }
 
@@ -121,14 +138,18 @@ function DataMap({
   fields: DataField[];
   relations: DataRelation[];
 }) {
+  const [filter, setFilter] = useState<MapStatusFilter>("all");
+  const visibleObjects = filterByStatus(objects, filter);
+  const visibleObjectIds = new Set(visibleObjects.map((object) => object.id));
+  const visibleRelations = filterByStatus(relations, filter);
   const [selectedObjectId, setSelectedObjectId] = useState(objects[0]?.id ?? "");
   const selectedObject = useMemo(
-    () => objects.find((object) => object.id === selectedObjectId) ?? objects[0],
-    [objects, selectedObjectId],
+    () => visibleObjects.find((object) => object.id === selectedObjectId) ?? visibleObjects[0],
+    [visibleObjects, selectedObjectId],
   );
   const selectedFields = selectedObject ? fields.filter((field) => field.dataObjectId === selectedObject.id) : [];
   const selectedRelations = selectedObject
-    ? relations.filter(
+    ? visibleRelations.filter(
         (relation) => relation.sourceObjectId === selectedObject.id || relation.targetObjectId === selectedObject.id,
       )
     : [];
@@ -136,11 +157,23 @@ function DataMap({
   if (objects.length === 0) return <p className="muted">아직 저장할 정보 제안이 없습니다.</p>;
 
   return (
-    <div className="map-detail-grid">
+    <>
+      <MapFilter filter={filter} onFilter={setFilter} />
+      <div className="map-edge-list">
+        {visibleRelations.map((relation) => (
+          <span
+            className={visibleObjectIds.has(relation.sourceObjectId) && visibleObjectIds.has(relation.targetObjectId) ? "" : "broken"}
+            key={relation.id}
+          >
+            정보 연결 · {relation.relationType}
+          </span>
+        ))}
+      </div>
+      <div className="map-detail-grid">
       <div className="node-list">
-        {objects.map((object) => (
+        {visibleObjects.map((object) => (
           <button
-            className={`node ${isConfirmedXrayObject(object) ? "confirmed" : ""} ${selectedObject?.id === object.id ? "selected" : ""}`}
+            className={`node ${statusClass(object.status)} ${isConfirmedXrayObject(object) ? "confirmed" : ""} ${selectedObject?.id === object.id ? "selected" : ""}`}
             key={object.id}
             type="button"
             onClick={() => setSelectedObjectId(object.id)}
@@ -170,5 +203,32 @@ function DataMap({
         </div>
       ) : null}
     </div>
+    </>
   );
+}
+
+function MapFilter({ filter, onFilter }: { filter: MapStatusFilter; onFilter: (filter: MapStatusFilter) => void }) {
+  return (
+    <div className="map-filter" aria-label="Map status filter">
+      {MAP_FILTERS.map((nextFilter) => (
+        <button
+          className={filter === nextFilter ? "active" : "secondary"}
+          key={nextFilter}
+          type="button"
+          onClick={() => onFilter(nextFilter)}
+        >
+          {nextFilter === "all" ? "전체" : STATUS_LABELS[nextFilter]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function filterByStatus<T extends { status: SuggestionStatus }>(objects: T[], filter: MapStatusFilter): T[] {
+  if (filter === "all") return objects;
+  return objects.filter((object) => object.status === filter);
+}
+
+function statusClass(status: SuggestionStatus): string {
+  return `status-${status}`;
 }

@@ -3,21 +3,22 @@ import type { ProjectWorkspace } from "../domain/workspace.js";
 import { validateWorkspace } from "../domain/validation.js";
 
 export type BuildPromptTarget = "codex" | "cursor";
+export type ExtendedBuildPromptTarget = BuildPromptTarget | "lovable" | "replit" | "bolt";
 
 export function createBuildPrompt(
   workspace: ProjectWorkspace,
-  options: { targetTool: BuildPromptTarget },
+  options: { targetTool: ExtendedBuildPromptTarget; buildStepTempId?: string },
 ): string {
   const screens = exportable(workspace.objects.screens);
   const dataObjects = exportable(workspace.objects.dataObjects);
   const flows = exportable(workspace.objects.flows);
   const issues = exportable(workspace.objects.issues).filter((issue) => issue.includeInPrompt !== false);
   const validation = validateWorkspace(workspace);
-  const toolName = options.targetTool === "codex" ? "Codex" : "Cursor";
-  const targetInstruction =
-    options.targetTool === "codex"
-      ? "Use repository-local patterns, keep changes reviewable, and verify before reporting completion."
-      : "Use the existing project context, keep edits scoped, and do not generate code from unconfirmed suggestions.";
+  const selectedBuildSteps = options.buildStepTempId
+    ? workspace.buildPlanSuggestions.filter((step) => step.tempId === options.buildStepTempId)
+    : workspace.buildPlanSuggestions;
+  const toolName = toolLabel(options.targetTool);
+  const targetInstruction = targetInstructionFor(options.targetTool);
 
   return [
     `You are implementing ${workspace.project.name} with ${toolName}.`,
@@ -33,6 +34,9 @@ export function createBuildPrompt(
     "",
     "Confirmed user flows:",
     ...flows.map((flow) => `- ${flow.name}: ${flow.description ?? "No description"}`),
+    "",
+    "Build step focus:",
+    ...emptyAware(selectedBuildSteps.map((step) => `- ${step.title}: ${step.description}`)),
     "",
     "Known missing parts to resolve before coding:",
     ...issues.map((issue) =>
@@ -52,4 +56,26 @@ export function createBuildPrompt(
 
 function emptyAware(lines: string[]): string[] {
   return lines.length > 0 ? lines : ["- None"];
+}
+
+function toolLabel(target: ExtendedBuildPromptTarget): string {
+  const labels: Record<ExtendedBuildPromptTarget, string> = {
+    codex: "Codex",
+    cursor: "Cursor",
+    lovable: "Lovable",
+    replit: "Replit",
+    bolt: "Bolt",
+  };
+  return labels[target];
+}
+
+function targetInstructionFor(target: ExtendedBuildPromptTarget): string {
+  const instructions: Record<ExtendedBuildPromptTarget, string> = {
+    codex: "Use repository-local patterns, keep changes reviewable, and verify before reporting completion.",
+    cursor: "Use the existing project context, keep edits scoped, and do not generate code from unconfirmed suggestions.",
+    lovable: "Build only the confirmed app structure and keep database/auth assumptions explicit.",
+    replit: "Prefer a small runnable MVP and do not add cloud-only services unless confirmed.",
+    bolt: "Generate only the confirmed screens, data, and flows; keep rejected suggestions out of scope.",
+  };
+  return instructions[target];
 }

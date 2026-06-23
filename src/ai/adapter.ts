@@ -6,9 +6,12 @@ import type {
 } from "../domain/ai-analysis.js";
 import type { SourceDocument } from "../domain/types.js";
 import { mockFieldPowerAppAnalysis } from "../fixtures/field-power-app.js";
+import type { AiProviderConfig } from "./settings.js";
 
 export type AiProviderAdapter = {
   analyze(input: AiAnalysisInput): AiAnalysisResult;
+  validateConnection(config: AiProviderConfig): AiProviderConnectionResult;
+  supportsStructuredJson: boolean;
 };
 
 export type AiAnalysisInput = {
@@ -18,6 +21,10 @@ export type AiAnalysisInput = {
 export type AiAnalysisValidationResult =
   | { ok: true; result: AiAnalysisResult; errors: [] }
   | { ok: false; result?: undefined; errors: string[] };
+
+export type AiProviderConnectionResult =
+  | { ok: true; checkedAt: string }
+  | { ok: false; error: string; checkedAt: string };
 
 const REQUIRED_ARRAY_FIELDS = [
   "requirements",
@@ -33,8 +40,15 @@ const REQUIRED_ARRAY_FIELDS = [
 ] as const;
 
 export const mockAiProviderAdapter: AiProviderAdapter = {
+  supportsStructuredJson: true,
   analyze() {
     return mockFieldPowerAppAnalysis;
+  },
+  validateConnection() {
+    return {
+      ok: true,
+      checkedAt: new Date().toISOString(),
+    };
   },
 };
 

@@ -1,9 +1,13 @@
 import { exportable, type ExportOptions } from "./markdown.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
+import { validateWorkspace } from "../domain/validation.js";
 
 export function exportProjectJson(workspace: ProjectWorkspace, options?: ExportOptions): string {
+  const validation = validateWorkspace(workspace);
   return JSON.stringify(
     {
+      schemaVersion: "1.0.0",
+      exportMode: options?.exportMode ?? "confirmedOnly",
       project: workspace.project,
       sourceDocuments: workspace.sourceDocuments,
       objects: {
@@ -19,6 +23,7 @@ export function exportProjectJson(workspace: ProjectWorkspace, options?: ExportO
         flowSteps: exportable(workspace.objects.flowSteps, options),
         issues: exportable(workspace.objects.issues, options),
       },
+      ...(options?.includeValidationAppendix ? { validation } : {}),
     },
     null,
     2,

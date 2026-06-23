@@ -21,10 +21,11 @@ export type SourceTrace = {
 };
 
 export type AiOrigin = {
-  kind: "ai";
+  kind: "ai" | "template";
   tempId: string;
   inferred?: boolean;
   reasoning?: string;
+  templateId?: string;
 };
 
 export type BaseXrayObject = {

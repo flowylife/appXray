@@ -1,4 +1,5 @@
 import type { ProjectWorkspace } from "../domain/workspace.js";
+import type { SuggestionStatus } from "../domain/types.js";
 import { exportProjectJson } from "./json.js";
 import { exportProjectMarkdown } from "./markdown.js";
 import { exportAppMapMermaid, exportDataMapMermaid } from "./mermaid.js";
@@ -15,21 +16,29 @@ export type ExportType =
   | "githubIssues"
   | "bundle";
 
+export type ExportMode = "confirmedOnly" | "auditTrail";
+
+export type ExportContentOptions = {
+  mode?: ExportMode;
+  includeValidationAppendix?: boolean;
+};
+
 export type ExportBundleFile = {
   fileName: string;
   exportType: Exclude<ExportType, "bundle">;
   content: string;
 };
 
-export function getExportContent(workspace: ProjectWorkspace, type: ExportType): string {
-  if (type === "markdown") return exportProjectMarkdown(workspace);
-  if (type === "appMermaid") return exportAppMapMermaid(workspace);
-  if (type === "dataMermaid") return exportDataMapMermaid(workspace);
-  if (type === "json") return exportProjectJson(workspace);
+export function getExportContent(workspace: ProjectWorkspace, type: ExportType, options: ExportContentOptions = {}): string {
+  const exportOptions = toExportOptions(options);
+  if (type === "markdown") return exportProjectMarkdown(workspace, exportOptions);
+  if (type === "appMermaid") return exportAppMapMermaid(workspace, exportOptions);
+  if (type === "dataMermaid") return exportDataMapMermaid(workspace, exportOptions);
+  if (type === "json") return exportProjectJson(workspace, exportOptions);
   if (type === "codexPrompt") return createBuildPrompt(workspace, { targetTool: "codex" });
   if (type === "cursorPrompt") return createBuildPrompt(workspace, { targetTool: "cursor" });
-  if (type === "githubIssues") return exportGithubIssuesMarkdown(workspace);
-  return JSON.stringify(createExportBundle(workspace), null, 2);
+  if (type === "githubIssues") return exportGithubIssuesMarkdown(workspace, exportOptions);
+  return JSON.stringify(createExportBundle(workspace, options), null, 2);
 }
 
 export function getExportFileName(workspace: ProjectWorkspace, type: ExportType): string {
@@ -44,7 +53,7 @@ export function getExportFileName(workspace: ProjectWorkspace, type: ExportType)
   return `app-xray-${projectSlug}-bundle.json`;
 }
 
-export function createExportBundle(workspace: ProjectWorkspace): { projectId: string; files: ExportBundleFile[] } {
+export function createExportBundle(workspace: ProjectWorkspace, options: ExportContentOptions = {}): { projectId: string; mode: ExportMode; files: ExportBundleFile[] } {
   const exportTypes: Exclude<ExportType, "bundle">[] = [
     "markdown",
     "appMermaid",
@@ -57,10 +66,11 @@ export function createExportBundle(workspace: ProjectWorkspace): { projectId: st
 
   return {
     projectId: workspace.project.id,
+    mode: options.mode ?? "confirmedOnly",
     files: exportTypes.map((exportType) => ({
       fileName: getExportFileName(workspace, exportType),
       exportType,
-      content: getExportContent(workspace, exportType),
+      content: getExportContent(workspace, exportType, options),
     })),
   };
 }
@@ -85,4 +95,22 @@ function sanitizeFilePart(value: string): string {
     .replace(/^-+|-+$/g, "");
 
   return normalized || "project";
+}
+
+function toExportOptions(options: ExportContentOptions): {
+  includeStatuses?: SuggestionStatus[];
+  exportMode?: ExportMode;
+  includeValidationAppendix?: boolean | undefined;
+} {
+  if (options.mode === "auditTrail") {
+    return {
+      includeStatuses: ["suggested", "accepted", "edited", "rejected", "deferred"],
+      exportMode: "auditTrail",
+      includeValidationAppendix: options.includeValidationAppendix,
+    };
+  }
+  return {
+    exportMode: "confirmedOnly",
+    includeValidationAppendix: options.includeValidationAppendix,
+  };
 }
