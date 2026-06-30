@@ -267,17 +267,17 @@ Acceptance criteria:
 - Test: `test/domain.test.mjs`
 - Create: `test/ui-export-panel.test.mjs`
 
-- [ ] Add tests proving each export has stable ordering, stable filenames, Korean text preservation, and empty-state content.
-- [ ] Add CSV export for issues and data objects using UTF-8 text and deterministic headers.
-- [ ] Add copy-to-clipboard result states for preview content.
-- [ ] Add per-format export descriptions that explain what each artifact is for.
-- [ ] Add bundle manifest metadata: app version, export mode, generated timestamp, validation summary, file list.
-- [ ] Keep canonical export mode as confirmed-only.
-- [ ] Keep audit-trail mode explicit and visibly labeled.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: improve deterministic export delivery`.
+- [x] Add tests proving each export has stable ordering, stable filenames, Korean text preservation, and empty-state content.
+- [x] Add CSV export for issues and data objects using UTF-8 text and deterministic headers.
+- [x] Add copy-to-clipboard result states for preview content.
+- [x] Add per-format export descriptions that explain what each artifact is for.
+- [x] Add bundle manifest metadata: app version, export mode, generated timestamp, validation summary, file list.
+- [x] Keep canonical export mode as confirmed-only.
+- [x] Keep audit-trail mode explicit and visibly labeled.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: improve deterministic export delivery`.
 
 Acceptance criteria:
 
