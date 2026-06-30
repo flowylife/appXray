@@ -62,14 +62,14 @@ App X-Ray is service-ready when a non-developer can repeatedly:
 - Create: `docs/product/local-first-data-contract.md`
 - Modify: `app-xray-codex-rules/README_CONCEPT.md`
 
-- [ ] Write `README.md` with the product purpose, local-first boundary, supported imports, supported exports, and development commands.
-- [ ] Write `docs/product/service-readiness.md` with the service-level definition, supported workflows, non-goals, and release checklist.
-- [ ] Write `docs/product/local-first-data-contract.md` documenting `localStorage` keys, backup format, confirmed-only export rule, and AI key handling.
-- [ ] Link those docs from `app-xray-codex-rules/README_CONCEPT.md` without changing the product boundary.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `docs: document App X-Ray service readiness`.
+- [x] Write `README.md` with the product purpose, local-first boundary, supported imports, supported exports, and development commands.
+- [x] Write `docs/product/service-readiness.md` with the service-level definition, supported workflows, non-goals, and release checklist.
+- [x] Write `docs/product/local-first-data-contract.md` documenting `localStorage` keys, backup format, confirmed-only export rule, and AI key handling.
+- [x] Link those docs from `app-xray-codex-rules/README_CONCEPT.md` without changing the product boundary.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `docs: document App X-Ray service readiness`.
 
 Acceptance criteria:
 
@@ -91,16 +91,16 @@ Acceptance criteria:
 - Test: `test/domain.test.mjs`
 - Create: `test/ui-project-lifecycle.test.mjs`
 
-- [ ] Add domain tests for creating a project with user-provided name and source text.
-- [ ] Add repository tests for duplicate project names, empty collection, corrupt collection, and project deletion.
-- [ ] Add UI tests with jsdom for the empty project list, new project form validation, successful creation, project switching, and deletion confirmation state.
-- [ ] Refine `src/App.tsx` so `/projects`, `/projects/new`, and `/projects/:projectId/review` each have explicit loading, empty, invalid input, success, and error states.
-- [ ] Add non-blocking save status copy when local persistence succeeds or fails.
-- [ ] Ensure deleting a project never deletes another project and always leaves a valid route.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: harden local project lifecycle`.
+- [x] Add domain tests for creating a project with user-provided name and source text.
+- [x] Add repository tests for duplicate project names, empty collection, corrupt collection, and project deletion.
+- [x] Add UI tests with jsdom for the empty project list, new project form validation, successful creation, project switching, and deletion confirmation state.
+- [x] Refine `src/App.tsx` so `/projects`, `/projects/new`, and `/projects/:projectId/review` each have explicit loading, empty, invalid input, success, and error states.
+- [x] Add non-blocking save status copy when local persistence succeeds or fails.
+- [x] Ensure deleting a project never deletes another project and always leaves a valid route.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: harden local project lifecycle`.
 
 Acceptance criteria:
 
@@ -122,17 +122,17 @@ Acceptance criteria:
 - Test: `test/domain.test.mjs`
 - Create: `test/ui-source-import.test.mjs`
 
-- [ ] Add tests for `.csv`, `.json`, and pasted text classification.
-- [ ] Add tests proving identical content does not create duplicate source versions.
-- [ ] Add tests proving unsupported binary files return a user-facing Korean error.
-- [ ] Implement `.csv` import as plain structured source text with detected headers.
-- [ ] Implement `.json` import as pretty-printed source text with malformed JSON errors.
-- [ ] Add paste/import UI affordances that show source type, version count, last imported time, and unsupported-file errors.
-- [ ] Keep PDF as explicit unsupported future scope unless a PDF parser dependency is approved in a separate task.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: expand local source import formats`.
+- [x] Add tests for `.csv`, `.json`, and pasted text classification.
+- [x] Add tests proving identical content does not create duplicate source versions.
+- [x] Add tests proving unsupported binary files return a user-facing Korean error.
+- [x] Implement `.csv` import as plain structured source text with detected headers.
+- [x] Implement `.json` import as pretty-printed source text with malformed JSON errors.
+- [x] Add paste/import UI affordances that show source type, version count, last imported time, and unsupported-file errors.
+- [x] Keep PDF as explicit unsupported future scope unless a PDF parser dependency is approved in a separate task.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: expand local source import formats`.
 
 Acceptance criteria:
 
@@ -330,17 +330,17 @@ Acceptance criteria:
 - Create: `test/e2e/fixtures.ts`
 - Create: `docs/product/manual-qa-checklist.md`
 
-- [ ] Add `test:e2e` script that runs Playwright against the Vite dev server.
-- [ ] Add an E2E test for create project → import source → run mock analysis → accept/edit/reject → export confirmed-only markdown.
-- [ ] Add an E2E test for reload persistence and project switching.
-- [ ] Add an E2E test for validation blocking export download.
-- [ ] Add an E2E test for backup download and backup import.
-- [ ] Add `docs/product/manual-qa-checklist.md` with exact browser checks for desktop and mobile widths.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run test:e2e`.
-- [ ] Commit with `test: add App X-Ray browser regression coverage`.
+- [x] Add `test:e2e` script that runs Playwright against the Vite dev server.
+- [x] Add an E2E test for create project → import source → run mock analysis → accept/edit/reject → export confirmed-only markdown.
+- [x] Add an E2E test for reload persistence and project switching.
+- [x] Add an E2E test for validation blocking export download.
+- [x] Add an E2E test for backup download and backup import.
+- [x] Add `docs/product/manual-qa-checklist.md` with exact browser checks for desktop and mobile widths.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Run `npm run test:e2e`.
+- [x] Commit with `test: add App X-Ray browser regression coverage`.
 
 Acceptance criteria:
 
