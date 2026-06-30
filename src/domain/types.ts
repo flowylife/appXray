@@ -54,7 +54,7 @@ export type SourceDocument = {
   projectId: string;
   title: string;
   content: string;
-  sourceType: "text" | "markdown" | "txt" | "pdf" | "imported";
+  sourceType: "text" | "markdown" | "txt" | "csv" | "json" | "pdf" | "imported";
   version: number;
   createdAt: string;
 };

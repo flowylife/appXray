@@ -28,7 +28,7 @@ export { expect };
 export async function importSourceFixture(page: Page, testInfo: TestInfo): Promise<void> {
   const sourcePath = testInfo.outputPath("field-power-source.txt");
   await writeFile(sourcePath, e2eSourceText, "utf8");
-  await page.getByLabel("Markdown/TXT 파일 가져오기").setInputFiles(sourcePath);
+  await page.getByLabel("원문 파일 가져오기").setInputFiles(sourcePath);
   await expect(page.getByText("field-power-source.txt 원문을 불러왔습니다.")).toBeVisible();
 }
 

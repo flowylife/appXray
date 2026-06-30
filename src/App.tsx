@@ -38,6 +38,8 @@ export default function App() {
   const [sourceText, setSourceText] = useState(workspace?.sourceDocuments.at(0)?.content ?? DEFAULT_PRD);
   const [sourceType, setSourceType] = useState<SourceDocument["sourceType"]>(workspace?.sourceDocuments.at(0)?.sourceType ?? "text");
   const [sourceImportMessage, setSourceImportMessage] = useState<string | null>(null);
+  const [sourceImportSeverity, setSourceImportSeverity] = useState<"info" | "error">("info");
+  const [lastImportedAt, setLastImportedAt] = useState<string | null>(null);
   const [activeExport, setActiveExport] = useState<ExportType>("markdown");
   const [promptTarget, setPromptTarget] = useState<ExtendedBuildPromptTarget>("codex");
   const [selectedBuildStep, setSelectedBuildStep] = useState("");
@@ -325,6 +327,13 @@ export default function App() {
     commitWorkspace(nextWorkspace, "로컬 저장됨");
   }
 
+  function updateSourceText(value: string) {
+    setSourceText(value);
+    setSourceType("text");
+    setSourceImportMessage(null);
+    setLastImportedAt(null);
+  }
+
   function updateWorkspaceFromForm(baseWorkspace: ProjectWorkspace, now: string): ProjectWorkspace {
     return {
       ...baseWorkspace,
@@ -367,11 +376,14 @@ export default function App() {
     const result = classifySourceFile(file.name, content);
     if (!result.ok) {
       setSourceImportMessage(result.error);
+      setSourceImportSeverity("error");
       return;
     }
     setSourceText(result.content);
     setSourceType(result.sourceType);
     setSourceImportMessage(`${result.fileName} 원문을 불러왔습니다. 저장하면 새 버전으로 기록됩니다.`);
+    setSourceImportSeverity("info");
+    setLastImportedAt(new Date().toISOString());
   }
 
   function applyBuiltInTemplate() {
@@ -516,28 +528,38 @@ export default function App() {
                 <option value="text">일반 텍스트</option>
                 <option value="markdown">Markdown</option>
                 <option value="txt">TXT 파일</option>
+                <option value="csv">CSV 파일</option>
+                <option value="json">JSON 파일</option>
                 <option value="pdf">PDF 지원 예정</option>
               </select>
             </label>
             <label>
               아이디어 / PRD
-              <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={7} />
+              <textarea value={sourceText} onChange={(event) => updateSourceText(event.target.value)} rows={7} />
             </label>
             <label>
-              Markdown/TXT 파일 가져오기
-              <input accept=".md,.markdown,.txt,.pdf" type="file" onChange={(event) => void importSourceFile(event.target.files?.[0])} />
+              원문 파일 가져오기
+              <input
+                accept=".md,.markdown,.txt,.csv,.json,.pdf"
+                aria-label="원문 파일 가져오기"
+                type="file"
+                onChange={(event) => void importSourceFile(event.target.files?.[0])}
+              />
             </label>
           </div>
           {formError ? <p className="notice error">{formError}</p> : null}
-          {sourceImportMessage ? <p className="notice info">{sourceImportMessage}</p> : null}
+          {sourceImportMessage ? <p className={`notice ${sourceImportSeverity}`}>{sourceImportMessage}</p> : null}
           <div className="button-row">
             <button type="button" onClick={createProject}>프로젝트 저장</button>
             {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>현재 변경 저장</button> : null}
             <button className="secondary" type="button" onClick={runMockAnalysis}>저장하고 Mock 분석</button>
           </div>
           <div className="source-meta">
+            <span>원문 종류: {sourceTypeLabel(sourceType)}</span>
+            <span>원문 버전: {workspace?.sourceDocuments.length ?? 0}개</span>
             <span>현재 원문 버전: v{latestSourceDocument?.version ?? 0}</span>
             {latestSourceDocument ? <span>저장 시각: {formatDateTime(latestSourceDocument.createdAt)}</span> : null}
+            {lastImportedAt ? <span>최근 가져오기: {formatDateTime(lastImportedAt)}</span> : null}
             {workspace?.lastAnalysis ? (
               <>
                 <span>최근 분석: v{workspace.lastAnalysis.sourceVersion}</span>
@@ -749,6 +771,18 @@ function formatDateTime(value: string): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function sourceTypeLabel(sourceType: SourceDocument["sourceType"]): string {
+  return {
+    text: "일반 텍스트",
+    markdown: "Markdown",
+    txt: "TXT",
+    csv: "CSV",
+    json: "JSON",
+    pdf: "PDF 지원 예정",
+    imported: "가져온 원문",
+  }[sourceType];
 }
 
 function sectionIdForRoute(section: string): string {

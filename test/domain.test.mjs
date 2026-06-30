@@ -17,7 +17,7 @@ import {
   createSourceDocumentVersion,
   getLatestSourceDocument,
 } from "../dist/domain/source-documents.js";
-import { classifySourceFile } from "../dist/domain/source-import.js";
+import { classifyPastedSource, classifySourceFile } from "../dist/domain/source-import.js";
 import {
   getDefaultExportableObjects,
   isConfirmedStatus,
@@ -447,6 +447,49 @@ test("source import classifies markdown txt and rejects pdf for now", () => {
   assert.equal(classifySourceFile("idea.pdf", "").ok, false);
 });
 
+test("source import classifies csv json and pasted text", () => {
+  const csv = classifySourceFile("contacts.csv", "name,email\n홍길동,hong@example.com");
+  const json = classifySourceFile("workflow.json", "{\"screen\":\"대시보드\",\"enabled\":true}");
+  const pasted = classifyPastedSource("직접 입력한 앱 아이디어");
+
+  assert.equal(csv.ok, true);
+  assert.equal(csv.sourceType, "csv");
+  assert.match(csv.content, /CSV headers: name, email/);
+  assert.match(csv.content, /홍길동,hong@example.com/);
+
+  assert.equal(json.ok, true);
+  assert.equal(json.sourceType, "json");
+  assert.match(json.content, /"screen": "대시보드"/);
+  assert.match(json.content, /"enabled": true/);
+
+  assert.equal(pasted.ok, true);
+  assert.equal(pasted.sourceType, "text");
+  assert.equal(pasted.content, "직접 입력한 앱 아이디어");
+});
+
+test("source import reports malformed json and unsupported binary files in Korean", () => {
+  const malformedJson = classifySourceFile("broken.json", "{\"screen\":");
+  const binary = classifySourceFile("image.png", "\u0000PNG");
+  const noExtensionFile = classifySourceFile("README", "원문처럼 보여도 파일 import에서는 확장자가 필요합니다.");
+
+  assert.equal(malformedJson.ok, false);
+  assert.match(malformedJson.error, /JSON 형식을 읽을 수 없습니다/);
+  assert.equal(binary.ok, false);
+  assert.match(binary.error, /지원하지 않는 파일 형식입니다/);
+  assert.equal(noExtensionFile.ok, false);
+  assert.match(noExtensionFile.error, /지원하지 않는 파일 형식입니다/);
+});
+
+test("source import rejects empty csv and documents simple header parsing", () => {
+  const emptyCsv = classifySourceFile("empty.csv", "  \n ");
+  const quotedCsv = classifySourceFile("quoted.csv", "\uFEFF\"name, full\",\"note\"\n\"홍, 길동\",\"설명\"");
+
+  assert.equal(emptyCsv.ok, false);
+  assert.match(emptyCsv.error, /CSV 파일이 비어 있습니다/);
+  assert.equal(quotedCsv.ok, true);
+  assert.match(quotedCsv.content, /CSV headers: name, full, note/);
+});
+
 test("source document versions preserve imported source type", () => {
   const next = appendSourceDocumentVersion(confirmedWorkspace(), "# Markdown PRD", {
     id: "src_markdown",
@@ -455,6 +498,48 @@ test("source document versions preserve imported source type", () => {
   });
 
   assert.equal(getLatestSourceDocument(next)?.sourceType, "markdown");
+});
+
+test("source document versions skip exact duplicate latest content", () => {
+  const workspace = confirmedWorkspace();
+  const next = appendSourceDocumentVersion(workspace, fieldPowerAppSourceDocument.content, {
+    id: "src_duplicate_import",
+    createdAt: "2026-07-01T04:00:00.000Z",
+    sourceType: "text",
+  });
+
+  assert.equal(next.sourceDocuments.length, workspace.sourceDocuments.length);
+  assert.equal(getLatestSourceDocument(next)?.id, getLatestSourceDocument(workspace)?.id);
+});
+
+test("source document versions allow reverting to older content as the latest source", () => {
+  const workspace = confirmedWorkspace();
+  const withSecondVersion = appendSourceDocumentVersion(workspace, "다른 원문", {
+    id: "src_second",
+    createdAt: "2026-07-01T03:00:00.000Z",
+    sourceType: "text",
+  });
+  const reverted = appendSourceDocumentVersion(withSecondVersion, fieldPowerAppSourceDocument.content, {
+    id: "src_reverted",
+    createdAt: "2026-07-01T04:00:00.000Z",
+    sourceType: "text",
+  });
+
+  assert.equal(reverted.sourceDocuments.length, withSecondVersion.sourceDocuments.length + 1);
+  assert.equal(getLatestSourceDocument(reverted)?.id, "src_reverted");
+  assert.equal(getLatestSourceDocument(reverted)?.content, fieldPowerAppSourceDocument.content);
+});
+
+test("source document versions preserve exact whitespace changes", () => {
+  const workspace = confirmedWorkspace();
+  const next = appendSourceDocumentVersion(workspace, ` ${fieldPowerAppSourceDocument.content} `, {
+    id: "src_whitespace_variant",
+    createdAt: "2026-07-01T04:30:00.000Z",
+    sourceType: "text",
+  });
+
+  assert.equal(next.sourceDocuments.length, workspace.sourceDocuments.length + 1);
+  assert.equal(getLatestSourceDocument(next)?.content, ` ${fieldPowerAppSourceDocument.content} `);
 });
 
 test("template validation catches broken references", () => {

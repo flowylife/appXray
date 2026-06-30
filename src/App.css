@@ -331,6 +331,12 @@ textarea {
   padding: 0.32rem 0.55rem;
 }
 
+.source-meta span:first-child {
+  background: #e7f3ff;
+  border-color: #c8def3;
+  color: #275b84;
+}
+
 .analysis-history {
   color: #60706b;
   font-size: 0.8rem;
