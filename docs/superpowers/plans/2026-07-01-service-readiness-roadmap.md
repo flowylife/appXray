@@ -295,21 +295,22 @@ Acceptance criteria:
 - Modify: `src/storage/workspace-backup.ts`
 - Modify: `src/storage/project-repository.ts`
 - Create: `src/storage/autosave-snapshots.ts`
+- Create: `src/storage/workspace-shape.ts`
 - Modify: `src/App.tsx`
 - Modify: `src/App.css`
 - Test: `test/domain.test.mjs`
 - Create: `test/storage-recovery.test.mjs`
 
-- [ ] Add snapshot tests for creating, listing, restoring, and pruning local autosave snapshots.
-- [ ] Add backup tests for schema version mismatch, missing required fields, malformed JSON, and import overwrite confirmation.
-- [ ] Implement local autosave snapshots per project with bounded retention.
-- [ ] Add restore UI that shows snapshot time, project name, and validation status before applying.
-- [ ] Add import UI that distinguishes merge, replace, and cancel.
-- [ ] Never overwrite the current workspace from backup without a visible confirmation step.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: add local recovery snapshots`.
+- [x] Add snapshot tests for creating, listing, restoring, and pruning local autosave snapshots.
+- [x] Add backup tests for schema version mismatch, missing required fields, malformed JSON, and import overwrite confirmation.
+- [x] Implement local autosave snapshots per project with bounded retention.
+- [x] Add restore UI that shows snapshot time, project name, and validation status before applying.
+- [x] Add import UI that distinguishes merge, replace, and cancel.
+- [x] Never overwrite the current workspace from backup without a visible confirmation step.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: add local recovery snapshots`.
 
 Acceptance criteria:
 
