@@ -35,6 +35,7 @@ import { getExportContent, getExportFileName } from "../dist/export/export-conte
 import { createBuildPrompt } from "../dist/prompt/build-prompt.js";
 import {
   createLocalStorageProjectRepository,
+  createProjectWorkspace,
   loadProjectCollection,
   loadProjectWorkspace,
   summarizeProjects,
@@ -546,6 +547,11 @@ test("hash routes parse project sections and settings", () => {
   });
 });
 
+test("project route helper keeps valid project routes after deletion fallback", () => {
+  assert.equal(projectRoute("project_a", "review"), "#/projects/project_a/review");
+  assert.equal(projectRoute("project_b", "source"), "#/projects/project_b/source");
+});
+
 test("workspace backup import rejects malformed input and preserves confirmed objects", () => {
   assert.equal(importWorkspaceBackup("{bad-json", null).ok, false);
 
@@ -616,6 +622,100 @@ test("localStorage repository stores switches and deletes multiple local project
   const afterDelete = repository.deleteWorkspace("project_first");
   assert.equal(afterDelete.activeWorkspace.project.id, "project_second");
   assert.equal(afterDelete.collection.workspaces.length, 1);
+});
+
+test("project workspace factory uses user-provided name and source text", () => {
+  const workspace = createProjectWorkspace({
+    name: "고객 상담 앱",
+    sourceText: "상담 접수와 처리 이력을 관리한다.",
+    sourceType: "text",
+    now: "2026-07-01T00:00:00.000Z",
+    projectId: "project_user_input",
+    sourceDocumentId: "src_user_input",
+  });
+
+  assert.equal(workspace.project.name, "고객 상담 앱");
+  assert.equal(workspace.project.id, "project_user_input");
+  assert.equal(workspace.sourceDocuments[0].content, "상담 접수와 처리 이력을 관리한다.");
+  assert.equal(workspace.sourceDocuments[0].projectId, "project_user_input");
+  assert.deepEqual(workspace.objects, emptySuggestionSetForTest());
+});
+
+test("localStorage repository returns an empty collection when nothing is stored", () => {
+  const result = loadProjectCollection({ getItem: () => null });
+
+  assert.equal(result.activeWorkspace, null);
+  assert.equal(result.collection.workspaces.length, 0);
+  assert.equal(result.collection.activeProjectId, undefined);
+  assert.equal(result.error, undefined);
+});
+
+test("localStorage repository opens corrupt collections as a recovery state", () => {
+  const result = loadProjectCollection({
+    getItem: (key) => (key === "app-xray.projects.v1" ? "{broken-json" : null),
+  });
+
+  assert.equal(result.activeWorkspace, null);
+  assert.equal(result.collection.workspaces.length, 0);
+  assert.match(result.error, /프로젝트 목록을 읽을 수 없어/);
+});
+
+test("localStorage repository rejects duplicate project names without overwriting data", () => {
+  const storage = new Map();
+  const repository = createLocalStorageProjectRepository({
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: (key) => storage.delete(key),
+  });
+  const first = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_first", name: "중복 이름" },
+  });
+  const second = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_second", name: "중복 이름" },
+  });
+
+  repository.saveWorkspace(first);
+  const result = repository.saveWorkspace(second);
+
+  assert.match(result.error, /같은 이름/);
+  assert.equal(result.collection.workspaces.length, 1);
+  assert.equal(result.collection.workspaces[0].project.id, "project_first");
+  assert.equal(repository.load()?.project.id, "project_first");
+});
+
+test("localStorage repository deletes only the requested project and keeps a valid active project", () => {
+  const storage = new Map();
+  const repository = createLocalStorageProjectRepository({
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: (key) => storage.delete(key),
+  });
+  const first = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_first", name: "첫 프로젝트" },
+    updatedAt: "2026-07-01T01:00:00.000Z",
+  });
+  const second = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_second", name: "둘 프로젝트" },
+    updatedAt: "2026-07-01T02:00:00.000Z",
+  });
+  const third = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_third", name: "셋 프로젝트" },
+    updatedAt: "2026-07-01T03:00:00.000Z",
+  });
+
+  repository.saveWorkspace(first);
+  repository.saveWorkspace(second);
+  repository.saveWorkspace(third);
+  repository.setActiveProject("project_second");
+  const afterDelete = repository.deleteWorkspace("project_second");
+
+  assert.deepEqual(
+    afterDelete.collection.workspaces.map((item) => item.project.id).sort(),
+    ["project_first", "project_third"],
+  );
+  assert.notEqual(afterDelete.collection.activeProjectId, "project_second");
+  assert.ok(afterDelete.activeWorkspace);
+  assert.equal(afterDelete.activeWorkspace.project.id, afterDelete.collection.activeProjectId);
 });
 
 test("localStorage collection loader migrates a legacy single workspace", () => {

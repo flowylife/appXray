@@ -35,6 +35,10 @@ export function projectRoute(projectId: string, section: ProjectRouteSection): s
   return `#/projects/${encodeURIComponent(projectId)}/${section}`;
 }
 
+export function projectOrListRoute(projectId: string | null | undefined, section: ProjectRouteSection = "review"): string {
+  return projectId ? projectRoute(projectId, section) : "#/projects";
+}
+
 function normalizeProjectSection(value: string): ProjectRouteSection {
   if (value === "review") return "review";
   if (value === "app-map") return "app-map";

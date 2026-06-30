@@ -12,19 +12,18 @@ import {
   summarizeSuggestionMergeImpact,
   updateXrayObjectStatus,
 } from "./domain/lifecycle.js";
-import { parseAppRoute, projectRoute } from "./domain/routes.js";
+import { parseAppRoute, projectOrListRoute, projectRoute, type ProjectRouteSection } from "./domain/routes.js";
 import { classifySourceFile } from "./domain/source-import.js";
 import { appendSourceDocumentVersion, getLatestSourceDocument } from "./domain/source-documents.js";
 import { isConfirmedXrayObject } from "./domain/status.js";
 import { applyTemplateToWorkspace } from "./domain/template.js";
 import type { BaseXrayObject, SourceDocument, SuggestionStatus, XrayObject, XraySuggestionSet } from "./domain/types.js";
 import type { ProjectWorkspace } from "./domain/workspace.js";
-import { createEmptySuggestionSet } from "./domain/workspace.js";
 import type { ExportType } from "./export/export-content.js";
 import { fieldPowerAppSourceDocument } from "./fixtures/field-power-app.js";
 import { fieldPowerTemplate } from "./fixtures/field-power-template.js";
 import { createBuildPrompt, type ExtendedBuildPromptTarget } from "./prompt/build-prompt.js";
-import { createLocalStorageProjectRepository, summarizeProjects } from "./storage/project-repository.js";
+import { createLocalStorageProjectRepository, createProjectWorkspace, summarizeProjects } from "./storage/project-repository.js";
 import { importWorkspaceBackup, serializeWorkspaceBackup } from "./storage/workspace-backup.js";
 import { downloadTextFile } from "./export/export-content.js";
 
@@ -43,6 +42,9 @@ export default function App() {
   const [promptTarget, setPromptTarget] = useState<ExtendedBuildPromptTarget>("codex");
   const [selectedBuildStep, setSelectedBuildStep] = useState("");
   const [saveError, setSaveError] = useState<string | null>(initialLoad.error ?? null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(initialLoad.activeWorkspace ? "로컬 프로젝트를 불러왔습니다." : null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [templateMessage, setTemplateMessage] = useState<string | null>(null);
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(() => loadAiProviderConfig());
   const [aiSettingsMessage, setAiSettingsMessage] = useState<string | null>(null);
@@ -54,9 +56,11 @@ export default function App() {
     try {
       const result = repository.saveWorkspace(workspace);
       setProjectSummaries(summarizeProjects(result.collection));
-      setSaveError(null);
+      setSaveError(result.error ?? null);
+      setSaveStatus(result.error ? null : "로컬 저장됨");
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "저장할 수 없습니다.");
+      setSaveStatus(null);
     }
   }, [repository, workspace]);
 
@@ -82,7 +86,7 @@ export default function App() {
       return;
     }
     if (route.name !== "projectSection") return;
-    if (workspace?.project.id !== route.projectId) openProject(route.projectId);
+    if (workspace?.project.id !== route.projectId) openProject(route.projectId, route.section);
     const sectionId = sectionIdForRoute(route.section);
     window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ block: "start" }));
   }, [route, workspace?.project.id]);
@@ -138,40 +142,44 @@ export default function App() {
   );
 
   function createProject() {
+    const validationError = validateProjectForm();
+    if (validationError) {
+      setFormError(validationError);
+      setSaveStatus(null);
+      return;
+    }
     const now = new Date().toISOString();
-    const projectId = `project_${crypto.randomUUID()}`;
-    const nextWorkspace: ProjectWorkspace = {
-      project: {
-        id: projectId,
-        name: projectName.trim() || "새 앱 아이디어",
-        description: "AI가 만들기 전에 구조를 먼저 확인하는 로컬 프로젝트",
-        appTypes: [],
-        createdAt: now,
-        updatedAt: now,
-      },
-      sourceDocuments: [
-        {
-          id: `src_${crypto.randomUUID()}`,
-          projectId,
-          title: "아이디어 / PRD",
-          content: sourceText.trim(),
-          sourceType,
-          version: 1,
-          createdAt: now,
-        },
-      ],
-      objects: createEmptySuggestionSet(),
-      buildPlanSuggestions: [],
-      updatedAt: now,
-    };
+    const nextWorkspace = createProjectWorkspace({
+      name: projectName,
+      sourceText,
+      sourceType,
+      now,
+    });
+    const result = repository.saveWorkspace(nextWorkspace);
+    if (result.error) {
+      setFormError(result.error);
+      setSaveError(result.error);
+      setSaveStatus(null);
+      return;
+    }
+    setFormError(null);
     setWorkspace(nextWorkspace);
-    window.location.hash = projectRoute(projectId, "source");
+    setProjectSummaries(summarizeProjects(result.collection));
+    setSaveError(null);
+    setSaveStatus("로컬 저장됨");
+    navigateTo(projectRoute(nextWorkspace.project.id, "review"));
   }
 
   function runMockAnalysis() {
+    const validationError = validateProjectForm();
+    if (validationError) {
+      setFormError(validationError);
+      setSaveStatus(null);
+      return;
+    }
     const now = new Date().toISOString();
     const baseWorkspace = workspace ?? createWorkspaceFromForm(now);
-    const versionedWorkspace = syncSourceDocument(baseWorkspace, now);
+    const versionedWorkspace = syncSourceDocument(updateWorkspaceFromForm(baseWorkspace, now), now);
     const sourceDocument = getLatestSourceDocument(versionedWorkspace);
     if (!sourceDocument) return;
     const analysis = mockAiProviderAdapter.analyze({ sourceDocument });
@@ -198,7 +206,7 @@ export default function App() {
       ...mergeImpact,
     };
 
-    setWorkspace({
+    const nextWorkspace = {
       ...versionedWorkspace,
       project: {
         ...versionedWorkspace.project,
@@ -211,35 +219,14 @@ export default function App() {
       analysisHistory: [lastAnalysis, ...(versionedWorkspace.analysisHistory ?? [])].slice(0, 10),
       lastStructureDiff: structureDiff,
       updatedAt: now,
-    });
+    };
+    if (commitWorkspace(nextWorkspace, "Mock 분석 완료")) {
+      navigateTo(projectRoute(nextWorkspace.project.id, "review"));
+    }
   }
 
   function createWorkspaceFromForm(now: string): ProjectWorkspace {
-    const projectId = `project_${crypto.randomUUID()}`;
-    return {
-      project: {
-        id: projectId,
-        name: projectName.trim() || "새 앱 아이디어",
-        description: "AI가 만들기 전에 구조를 먼저 확인하는 로컬 프로젝트",
-        appTypes: [],
-        createdAt: now,
-        updatedAt: now,
-      },
-      sourceDocuments: [
-        {
-          id: `src_${crypto.randomUUID()}`,
-          projectId,
-          title: "아이디어 / PRD",
-          content: sourceText.trim(),
-          sourceType,
-          version: 1,
-          createdAt: now,
-        },
-      ],
-      objects: createEmptySuggestionSet(),
-      buildPlanSuggestions: [],
-      updatedAt: now,
-    };
+    return createProjectWorkspace({ name: projectName, sourceText, sourceType, now });
   }
 
   function updateObjectStatus(bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) {
@@ -286,31 +273,84 @@ export default function App() {
       setProjectName("현장 전력설비 관리 앱");
       setSourceText(DEFAULT_PRD);
     }
+    navigateTo(projectOrListRoute(result.activeWorkspace?.project.id, "review"));
   }
 
-  function openProject(projectId: string) {
+  function openProject(projectId: string, section: ProjectRouteSection = "review") {
     const result = repository.setActiveProject(projectId);
     setWorkspace(result.workspace);
     setSaveError(result.error ?? null);
+    setSaveStatus(result.error ? null : "로컬 프로젝트를 열었습니다.");
+    setPendingDeleteProjectId(null);
+    if (!result.workspace || result.workspace.project.id !== projectId) {
+      navigateTo(projectOrListRoute(result.workspace?.project.id, "review"));
+      return;
+    }
+    navigateTo(projectRoute(projectId, section));
   }
 
   function deleteProject(projectId: string) {
-    if (!window.confirm("이 로컬 프로젝트를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+    if (pendingDeleteProjectId !== projectId) {
+      setPendingDeleteProjectId(projectId);
+      return;
+    }
     const result = repository.deleteWorkspace(projectId);
     setWorkspace(result.activeWorkspace);
     setProjectSummaries(summarizeProjects(result.collection));
+    setPendingDeleteProjectId(null);
+    setSaveError(result.error ?? null);
+    setSaveStatus("로컬 프로젝트를 삭제했습니다.");
     if (!result.activeWorkspace) {
       setProjectName("현장 전력설비 관리 앱");
       setSourceText(DEFAULT_PRD);
     }
+    navigateTo(projectOrListRoute(result.activeWorkspace?.project.id, "review"));
+  }
+
+  function navigateTo(hash: string) {
+    window.location.hash = hash;
+    setRoute(parseAppRoute(hash));
   }
 
   function saveSourceVersion() {
+    const validationError = validateProjectForm();
+    if (validationError) {
+      setFormError(validationError);
+      setSaveStatus(null);
+      return;
+    }
     const now = new Date().toISOString();
-    setWorkspace((current) => {
-      const baseWorkspace = current ?? createWorkspaceFromForm(now);
-      return syncSourceDocument(baseWorkspace, now);
-    });
+    const baseWorkspace = workspace ?? createWorkspaceFromForm(now);
+    const nextWorkspace = syncSourceDocument(updateWorkspaceFromForm(baseWorkspace, now), now);
+    commitWorkspace(nextWorkspace, "로컬 저장됨");
+  }
+
+  function updateWorkspaceFromForm(baseWorkspace: ProjectWorkspace, now: string): ProjectWorkspace {
+    return {
+      ...baseWorkspace,
+      project: {
+        ...baseWorkspace.project,
+        name: projectName.trim(),
+        updatedAt: now,
+      },
+      updatedAt: now,
+    };
+  }
+
+  function commitWorkspace(nextWorkspace: ProjectWorkspace, successMessage: string): boolean {
+    const result = repository.saveWorkspace(nextWorkspace);
+    if (result.error) {
+      setFormError(result.error);
+      setSaveError(result.error);
+      setSaveStatus(null);
+      return false;
+    }
+    setFormError(null);
+    setWorkspace(nextWorkspace);
+    setProjectSummaries(summarizeProjects(result.collection));
+    setSaveError(null);
+    setSaveStatus(successMessage);
+    return true;
   }
 
   function syncSourceDocument(baseWorkspace: ProjectWorkspace, now: string): ProjectWorkspace {
@@ -384,6 +424,20 @@ export default function App() {
     );
   }
 
+  function validateProjectForm(): string | null {
+    const errors: string[] = [];
+    if (!projectName.trim()) errors.push("프로젝트 이름을 입력하세요.");
+    if (!sourceText.trim()) errors.push("아이디어나 PRD 원문을 입력하세요.");
+    const duplicateProject = projectSummaries.find(
+      (project) =>
+        project.id !== workspace?.project.id &&
+        project.name.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR") ===
+          projectName.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR"),
+    );
+    if (duplicateProject) errors.push("같은 이름의 로컬 프로젝트가 이미 있습니다.");
+    return errors.length ? errors.join(" ") : null;
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="App X-Ray sections">
@@ -412,9 +466,14 @@ export default function App() {
           {projectSummaries.length === 0 ? <small>아직 저장된 프로젝트가 없습니다.</small> : null}
           {projectSummaries.map((project) => (
             <div className={`project-item ${workspace?.project.id === project.id ? "active" : ""}`} key={project.id}>
-              <button type="button" onClick={() => { openProject(project.id); window.location.hash = projectRoute(project.id, "source"); }}>{project.name}</button>
-              <button className="secondary icon-button" type="button" aria-label={`${project.name} 삭제`} onClick={() => deleteProject(project.id)}>
-                ×
+              <button type="button" onClick={() => openProject(project.id, "review")}>{project.name}</button>
+              <button
+                className={`secondary icon-button ${pendingDeleteProjectId === project.id ? "pending-delete" : ""}`}
+                type="button"
+                aria-label={`${project.name} 삭제`}
+                onClick={() => deleteProject(project.id)}
+              >
+                {pendingDeleteProjectId === project.id ? "삭제 확인" : "×"}
               </button>
             </div>
           ))}
@@ -439,6 +498,7 @@ export default function App() {
         </header>
 
         {saveError ? <p className="notice error">로컬 저장 실패: {saveError}</p> : null}
+        {saveStatus ? <p className="notice info" role="status">{saveStatus}</p> : null}
 
         <section className="panel intake" id="new-project">
           <div className="section-heading">
@@ -468,10 +528,11 @@ export default function App() {
               <input accept=".md,.markdown,.txt,.pdf" type="file" onChange={(event) => void importSourceFile(event.target.files?.[0])} />
             </label>
           </div>
+          {formError ? <p className="notice error">{formError}</p> : null}
           {sourceImportMessage ? <p className="notice info">{sourceImportMessage}</p> : null}
           <div className="button-row">
             <button type="button" onClick={createProject}>프로젝트 저장</button>
-            {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>원문 새 버전 저장</button> : null}
+            {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>현재 변경 저장</button> : null}
             <button className="secondary" type="button" onClick={runMockAnalysis}>저장하고 Mock 분석</button>
           </div>
           <div className="source-meta">
@@ -606,7 +667,7 @@ export default function App() {
         ) : (
           <section className="empty-state">
             <h2>아직 저장된 구조가 없습니다.</h2>
-            <p>아이디어를 저장하고 Mock 분석을 실행하면 화면, 정보 구조, 빠진 것이 suggested 상태로 나타납니다.</p>
+            <p>{saveError ? "새 프로젝트로 다시 시작할 수 있습니다." : "새 프로젝트를 만들어 원문을 저장하세요. Mock 분석을 실행하면 화면, 정보 구조, 빠진 것이 나타납니다."}</p>
           </section>
         )}
       </section>
