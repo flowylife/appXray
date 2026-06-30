@@ -232,16 +232,16 @@ Acceptance criteria:
 - Test: `test/domain.test.mjs`
 - Create: `test/ui-validation-actions.test.mjs`
 
-- [ ] Extend validation issues with `targetBucket`, `targetId`, and `suggestedAction`.
-- [ ] Add tests for broken relation, duplicate name, orphan field, empty confirmed object, and non-confirmed export contamination.
-- [ ] Implement `validation-actions.ts` with pure helpers that map a validation issue to a review route and repair action label.
-- [ ] Add an export-panel validation list where each blocking item can jump to the relevant review object.
-- [ ] Add review-side validation badges on affected objects.
-- [ ] Add safe repair actions only where deterministic: remove broken relation, mark duplicate as deferred, or exclude issue from prompt.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: add actionable validation repair guidance`.
+- [x] Extend validation issues with `targetBucket`, `targetId`, and `suggestedAction`.
+- [x] Add tests for broken relation, duplicate name, orphan field, empty confirmed object, and non-confirmed export contamination.
+- [x] Implement `validation-actions.ts` with pure helpers that map a validation issue to a review route and repair action label.
+- [x] Add an export-panel validation list where each blocking item can jump to the relevant review object.
+- [x] Add review-side validation badges on affected objects.
+- [x] Add safe repair actions only where deterministic: remove broken relation, mark duplicate as deferred, or exclude issue from prompt.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: add actionable validation repair guidance`.
 
 Acceptance criteria:
 
