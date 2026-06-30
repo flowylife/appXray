@@ -212,7 +212,7 @@ function ReviewGroup({
   const filteredObjects = filterObjects(objects, filter);
 
   return (
-    <div className="review-group">
+    <div className="review-group" aria-label={`리뷰 그룹: ${title}`}>
       <h3>{title} <span>{filteredObjects.length} / {objects.length}</span></h3>
       <div className="review-list">
         {objects.length === 0 ? <p className="muted">아직 제안이 없습니다.</p> : null}
@@ -260,7 +260,7 @@ function ReviewRow({
 
   if (isEditing) {
     return (
-      <article className="review-row editing">
+      <article className="review-row editing" aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}>
         <div className="edit-fields">
           {EDIT_FIELDS[bucket].map((field) => (
             <EditFieldControl
@@ -273,15 +273,15 @@ function ReviewRow({
         </div>
         <StatusBadge status={object.status} />
         <div className="row-actions">
-          <button type="button" onClick={saveEdit}>저장</button>
-          <button className="secondary" type="button" onClick={() => setIsEditing(false)}>취소</button>
+          <button type="button" aria-label={`${getObjectLabel(object)} 저장`} onClick={saveEdit}>저장</button>
+          <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} 취소`} onClick={() => setIsEditing(false)}>취소</button>
         </div>
       </article>
     );
   }
 
   return (
-    <article className="review-row">
+    <article className="review-row" aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}>
       <div>
         <strong>{getObjectLabel(object)}</strong>
         <p>{getObjectDescription(object)}</p>
@@ -293,13 +293,17 @@ function ReviewRow({
         <StatusBadge status={object.status} />
       </div>
       <div className="row-actions">
-        <button type="button" onClick={() => onStatus(bucket, object, "accepted")}>확정</button>
-        <button type="button" onClick={startEdit}>수정</button>
-        <button className="secondary" type="button" onClick={() => onStatus(bucket, object, "deferred")}>나중</button>
-        <button className="danger" type="button" onClick={() => onStatus(bucket, object, "rejected")}>제외</button>
+        <button type="button" aria-label={`${getObjectLabel(object)} 확정`} onClick={() => onStatus(bucket, object, "accepted")}>확정</button>
+        <button type="button" aria-label={`${getObjectLabel(object)} 수정`} onClick={startEdit}>수정</button>
+        <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} 나중`} onClick={() => onStatus(bucket, object, "deferred")}>나중</button>
+        <button className="danger" type="button" aria-label={`${getObjectLabel(object)} 제외`} onClick={() => onStatus(bucket, object, "rejected")}>제외</button>
       </div>
     </article>
   );
+}
+
+function titleForBucket(bucket: ObjectBucket): string {
+  return BUCKET_LABELS[bucket];
 }
 
 function EditFieldControl({
