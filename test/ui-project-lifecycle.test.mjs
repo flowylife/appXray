@@ -169,6 +169,23 @@ test("corrupt local project collection shows a visible recovery state", async ()
   assert.match(document.body.textContent, /새 프로젝트로 다시 시작할 수 있습니다/);
 });
 
+test("AI provider switch clears the previous provider API key before saving", async () => {
+  await renderApp("#/settings/ai");
+
+  await fillLabeledControl("AI 제공자", "openai");
+  await fillLabeledControl("API Key", "sk-openai-secret-1234567890");
+  await clickButton("설정 저장");
+  assert.match(localStorage.getItem("app-xray.ai-settings.v1"), /sk-openai-secret/);
+
+  await fillLabeledControl("AI 제공자", "anthropic");
+  await clickButton("설정 저장");
+
+  const stored = JSON.parse(localStorage.getItem("app-xray.ai-settings.v1"));
+  assert.equal(stored.provider, "anthropic");
+  assert.equal(stored.apiKey, undefined);
+  assert.equal(stored.apiKeyPresent, false);
+});
+
 async function renderApp(hash = "#/projects") {
   window.location.hash = hash;
   if (!App) {

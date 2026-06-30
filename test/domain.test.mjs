@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { validateAiAnalysisResult } from "../dist/ai/adapter.js";
+import { mockAiProviderAdapter, validateAiAnalysisResult } from "../dist/ai/adapter.js";
 import { loadAiProviderConfig, saveAiProviderConfig, toPublicAiProviderConfig } from "../dist/ai/settings.js";
 import { compareSuggestionSets } from "../dist/domain/diff.js";
 import { parseAppRoute, projectRoute } from "../dist/domain/routes.js";
@@ -1428,6 +1428,23 @@ test("AI analysis validation accepts canonical mock and rejects unsafe shapes", 
   const duplicate = mockAnalysisClone();
   duplicate.screens[1].tempId = duplicate.screens[0].tempId;
   assert.match(validateAiAnalysisResult(duplicate).errors.join(" "), /중복 tempId/);
+
+  const missingRequiredField = mockAnalysisClone();
+  delete missingRequiredField.screens[0].name;
+  assert.equal(validateAiAnalysisResult(missingRequiredField).ok, false);
+  assert.match(validateAiAnalysisResult(missingRequiredField).errors.join(" "), /screens.*name/);
+
+  const invalidEnum = mockAnalysisClone();
+  invalidEnum.screens[0].screenType = "not_a_screen_type";
+  assert.equal(validateAiAnalysisResult(invalidEnum).ok, false);
+  assert.match(validateAiAnalysisResult(invalidEnum).errors.join(" "), /screenType/);
+});
+
+test("mock AI adapter remains deterministic after async conversion", async () => {
+  const result = await mockAiProviderAdapter.analyze({ sourceDocument: fieldPowerAppSourceDocument });
+
+  assert.deepEqual(result, mockFieldPowerAppAnalysis);
+  assert.equal(validateAiAnalysisResult(result).ok, true);
 });
 
 function mockAnalysisClone() {

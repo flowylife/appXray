@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { mockAiProviderAdapter, validateAiAnalysisResult } from "./ai/adapter.js";
+import { analyzeWithHttpProvider } from "./ai/http-provider.js";
+import { AI_PROVIDER_REGISTRY, getAiProviderMetadata } from "./ai/provider-registry.js";
 import { DEFAULT_AI_PROVIDER_CONFIG, loadAiProviderConfig, saveAiProviderConfig, type AiProviderConfig, type AiProviderName } from "./ai/settings.js";
 import { ExportPanel } from "./components/ExportPanel.js";
 import { MapPanels, MissingParts } from "./components/MapPanels.js";
@@ -43,6 +45,7 @@ import {
 import { downloadTextFile } from "./export/export-content.js";
 
 const DEFAULT_PRD = fieldPowerAppSourceDocument.content;
+const AI_PROVIDER_OPTIONS = Object.values(AI_PROVIDER_REGISTRY);
 
 type PendingBackupImport = {
   exportedAt: string;
@@ -56,6 +59,13 @@ type PendingSnapshotRestore = {
   workspace: ProjectWorkspace;
   validation: ReturnType<typeof validateWorkspace>;
 };
+
+type AnalysisRunState =
+  | { status: "idle" }
+  | { status: "running"; provider: AiProviderName }
+  | { status: "success"; message: string }
+  | { status: "validation-failed"; message: string }
+  | { status: "provider-error"; message: string };
 
 export default function App() {
   const repository = useMemo(() => createLocalStorageProjectRepository(), []);
@@ -78,6 +88,7 @@ export default function App() {
   const [templateMessage, setTemplateMessage] = useState<string | null>(null);
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(() => loadAiProviderConfig());
   const [aiSettingsMessage, setAiSettingsMessage] = useState<string | null>(null);
+  const [analysisRunState, setAnalysisRunState] = useState<AnalysisRunState>({ status: "idle" });
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(null);
   const [snapshotSummaries, setSnapshotSummaries] = useState<AutosaveSnapshotSummary[]>(() =>
@@ -158,12 +169,10 @@ export default function App() {
       <div className="form-grid settings-grid">
         <label>
           AI 제공자
-          <select value={aiConfig.provider} onChange={(event) => updateAiConfig({ provider: event.target.value as AiProviderName })}>
-            <option value="mock">Mock</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="openrouter">OpenRouter</option>
+          <select value={aiConfig.provider} onChange={(event) => updateAiProvider(event.target.value as AiProviderName)}>
+            {AI_PROVIDER_OPTIONS.map((provider) => (
+              <option key={provider.provider} value={provider.provider}>{provider.label}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -180,6 +189,7 @@ export default function App() {
           />
         </label>
       </div>
+      <p className="muted export-file-name">{getAiProviderMetadata(aiConfig.provider).description}</p>
       <div className="button-row">
         <button type="button" onClick={saveAiSettings}>설정 저장</button>
         <button className="secondary" type="button" onClick={() => setAiConfig(DEFAULT_AI_PROVIDER_CONFIG)}>Mock으로 되돌리기</button>
@@ -218,11 +228,12 @@ export default function App() {
     navigateTo(projectRoute(nextWorkspace.project.id, "review"));
   }
 
-  function runMockAnalysis() {
+  async function runAnalysis() {
     const validationError = validateProjectForm();
     if (validationError) {
       setFormError(validationError);
       setSaveStatus(null);
+      setAnalysisRunState({ status: "validation-failed", message: validationError });
       return;
     }
     const now = new Date().toISOString();
@@ -230,10 +241,35 @@ export default function App() {
     const versionedWorkspace = syncSourceDocument(updateWorkspaceFromForm(baseWorkspace, now), now);
     const sourceDocument = getLatestSourceDocument(versionedWorkspace);
     if (!sourceDocument) return;
-    const analysis = mockAiProviderAdapter.analyze({ sourceDocument });
+    setAnalysisRunState({ status: "running", provider: aiConfig.provider });
+    let analysis: Awaited<ReturnType<typeof mockAiProviderAdapter.analyze>>;
+    try {
+      if (aiConfig.provider === "mock") {
+        analysis = await mockAiProviderAdapter.analyze({ sourceDocument });
+      } else {
+        const providerResult = await analyzeWithHttpProvider(aiConfig, { sourceDocument });
+        if (!providerResult.ok) {
+          setAnalysisRunState({
+            status: "provider-error",
+            message: providerResult.error,
+          });
+          return;
+        }
+        analysis = providerResult.result;
+      }
+    } catch (error) {
+      setAnalysisRunState({
+        status: "provider-error",
+        message: error instanceof Error ? error.message : "AI 분석 요청에 실패했습니다.",
+      });
+      return;
+    }
     const validation = validateAiAnalysisResult(analysis);
     if (!validation.ok) {
-      setSaveError(`AI 분석 결과 검증 실패: ${validation.errors.join(" / ")}`);
+      setAnalysisRunState({
+        status: "validation-failed",
+        message: `AI 분석 결과 검증 실패: ${validation.errors.join(" / ")}`,
+      });
       return;
     }
 
@@ -269,6 +305,7 @@ export default function App() {
       updatedAt: now,
     };
     if (commitWorkspace(nextWorkspace, "Mock 분석 완료")) {
+      setAnalysisRunState({ status: "success", message: "AI 분석 결과를 suggested 구조로 반영했습니다." });
       navigateTo(projectRoute(nextWorkspace.project.id, "review"));
     }
   }
@@ -566,6 +603,19 @@ export default function App() {
     setAiConfig((current) => ({ ...current, ...patch }));
   }
 
+  function updateAiProvider(provider: AiProviderName) {
+    const metadata = getAiProviderMetadata(provider);
+    setAiConfig((current) => ({
+      ...current,
+      provider,
+      modelName: metadata.defaultModel,
+      apiKey: undefined,
+      apiKeyPresent: false,
+      lastValidatedAt: undefined,
+    }));
+    setAiSettingsMessage(null);
+  }
+
   function downloadWorkspaceBackup() {
     if (!workspace) return;
     const fileName = `app-xray-workspace-${workspace.project.name.trim().replace(/[^a-zA-Z0-9가-힣]+/g, "-") || "project"}.json`;
@@ -726,12 +776,19 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <button className="secondary" type="button" onClick={resetWorkspace}>현재 프로젝트 삭제</button>
-            <button type="button" onClick={runMockAnalysis}>{workspace ? "Mock 재분석" : "Mock 분석하기"}</button>
+            <button type="button" disabled={analysisRunState.status === "running"} onClick={() => void runAnalysis()}>
+              {analysisButtonLabel(aiConfig.provider, Boolean(workspace), analysisRunState.status === "running")}
+            </button>
           </div>
         </header>
 
         {saveError ? <p className="notice error">로컬 저장 실패: {saveError}</p> : null}
         {saveStatus ? <p className="notice info" role="status">{saveStatus}</p> : null}
+        {analysisRunState.status === "running" ? <p className="notice info" role="status">AI 분석을 실행 중입니다.</p> : null}
+        {analysisRunState.status === "success" ? <p className="notice info" role="status">{analysisRunState.message}</p> : null}
+        {analysisRunState.status === "validation-failed" || analysisRunState.status === "provider-error" ? (
+          <p className="notice error">{analysisRunState.message}</p>
+        ) : null}
 
         <section className="panel intake" id="new-project">
           <div className="section-heading">
@@ -773,7 +830,9 @@ export default function App() {
           <div className="button-row">
             <button type="button" onClick={createProject}>프로젝트 저장</button>
             {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>현재 변경 저장</button> : null}
-            <button className="secondary" type="button" onClick={runMockAnalysis}>저장하고 Mock 분석</button>
+            <button className="secondary" type="button" disabled={analysisRunState.status === "running"} onClick={() => void runAnalysis()}>
+              {aiConfig.provider === "mock" ? "저장하고 Mock 분석" : `저장하고 ${getAiProviderMetadata(aiConfig.provider).label} 분석`}
+            </button>
           </div>
           <div className="source-meta">
             <span>원문 종류: {sourceTypeLabel(sourceType)}</span>
@@ -1067,6 +1126,13 @@ function sourceTypeLabel(sourceType: SourceDocument["sourceType"]): string {
     pdf: "PDF 지원 예정",
     imported: "가져온 원문",
   }[sourceType];
+}
+
+function analysisButtonLabel(provider: AiProviderName, hasWorkspace: boolean, isRunning: boolean): string {
+  if (isRunning) return "AI 분석 중";
+  if (provider === "mock") return hasWorkspace ? "Mock 재분석" : "Mock 분석하기";
+  const providerLabel = getAiProviderMetadata(provider).label;
+  return hasWorkspace ? `${providerLabel} 재분석` : `${providerLabel} 분석하기`;
 }
 
 function sectionIdForRoute(section: string): string {
