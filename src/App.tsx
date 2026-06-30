@@ -28,10 +28,34 @@ import { fieldPowerAppSourceDocument } from "./fixtures/field-power-app.js";
 import { fieldPowerTemplate } from "./fixtures/field-power-template.js";
 import { createBuildPrompt, type ExtendedBuildPromptTarget } from "./prompt/build-prompt.js";
 import { createLocalStorageProjectRepository, createProjectWorkspace, summarizeProjects } from "./storage/project-repository.js";
-import { importWorkspaceBackup, serializeWorkspaceBackup } from "./storage/workspace-backup.js";
+import {
+  createAutosaveSnapshot,
+  listAutosaveSnapshots,
+  restoreAutosaveSnapshot,
+  type AutosaveSnapshotSummary,
+} from "./storage/autosave-snapshots.js";
+import {
+  mergeWorkspaceBackup,
+  parseWorkspaceBackup,
+  replaceWorkspaceFromBackup,
+  serializeWorkspaceBackup,
+} from "./storage/workspace-backup.js";
 import { downloadTextFile } from "./export/export-content.js";
 
 const DEFAULT_PRD = fieldPowerAppSourceDocument.content;
+
+type PendingBackupImport = {
+  exportedAt: string;
+  workspace: ProjectWorkspace;
+  validation: ReturnType<typeof validateWorkspace>;
+};
+
+type PendingSnapshotRestore = {
+  snapshotId: string;
+  createdAt: string;
+  workspace: ProjectWorkspace;
+  validation: ReturnType<typeof validateWorkspace>;
+};
 
 export default function App() {
   const repository = useMemo(() => createLocalStorageProjectRepository(), []);
@@ -55,6 +79,11 @@ export default function App() {
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(() => loadAiProviderConfig());
   const [aiSettingsMessage, setAiSettingsMessage] = useState<string | null>(null);
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(null);
+  const [snapshotSummaries, setSnapshotSummaries] = useState<AutosaveSnapshotSummary[]>(() =>
+    workspace ? listAutosaveSnapshots(window.localStorage, workspace.project.id) : [],
+  );
+  const [pendingSnapshotRestore, setPendingSnapshotRestore] = useState<PendingSnapshotRestore | null>(null);
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
   const [statusHistory, setStatusHistory] = useState<ReviewStatusDecisionGroup[]>([]);
   const [focusedValidationIssue, setFocusedValidationIssue] = useState<ValidationIssue | null>(null);
@@ -63,9 +92,14 @@ export default function App() {
     if (!workspace) return;
     try {
       const result = repository.saveWorkspace(workspace);
+      const snapshotResult = createAutosaveSnapshot(window.localStorage, workspace);
+      setSnapshotSummaries(listAutosaveSnapshots(window.localStorage, workspace.project.id));
       setProjectSummaries(summarizeProjects(result.collection));
       setSaveError(result.error ?? null);
       setSaveStatus(result.error ? null : "로컬 저장됨");
+      if (!snapshotResult.ok) {
+        setBackupMessage(snapshotResult.error);
+      }
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "저장할 수 없습니다.");
       setSaveStatus(null);
@@ -541,17 +575,86 @@ export default function App() {
   async function importWorkspaceFile(file: File | undefined) {
     if (!file) return;
     const raw = await file.text();
-    const result = importWorkspaceBackup(raw, workspace);
+    const parsed = parseWorkspaceBackup(raw);
+    if (!parsed.ok) {
+      setPendingBackupImport(null);
+      setBackupMessage(parsed.error);
+      return;
+    }
+    setPendingBackupImport({
+      exportedAt: parsed.exportedAt,
+      workspace: parsed.workspace,
+      validation: parsed.validation,
+    });
+    setBackupMessage("백업 내용을 확인했습니다. 병합, 교체, 취소 중 하나를 선택하세요.");
+  }
+
+  function applyBackupMerge() {
+    if (!pendingBackupImport) return;
+    const now = new Date().toISOString();
+    const nextWorkspace = workspace
+      ? mergeWorkspaceBackup(workspace, pendingBackupImport.workspace, now)
+      : replaceWorkspaceFromBackup(pendingBackupImport.workspace, now);
+    if (commitWorkspace(nextWorkspace, "workspace 백업을 병합했습니다.")) {
+      setPendingBackupImport(null);
+      setBackupMessage(
+        validateWorkspace(nextWorkspace).isExportSafe
+          ? "workspace 백업을 병합했습니다."
+          : `workspace를 병합했지만 내보내기 전에 고칠 것 ${validateWorkspace(nextWorkspace).errors.length}개가 있습니다.`,
+      );
+    }
+  }
+
+  function applyBackupReplace() {
+    if (!pendingBackupImport) return;
+    const nextWorkspace = replaceWorkspaceFromBackup(pendingBackupImport.workspace, new Date().toISOString());
+    if (commitWorkspace(nextWorkspace, "workspace 백업으로 교체했습니다.")) {
+      setPendingBackupImport(null);
+      setBackupMessage(
+        validateWorkspace(nextWorkspace).isExportSafe
+          ? "workspace 백업으로 교체했습니다."
+          : `workspace로 교체했지만 내보내기 전에 고칠 것 ${validateWorkspace(nextWorkspace).errors.length}개가 있습니다.`,
+      );
+      navigateTo(projectRoute(nextWorkspace.project.id, "review"));
+    }
+  }
+
+  function cancelBackupImport() {
+    setPendingBackupImport(null);
+    setBackupMessage("workspace 백업 불러오기를 취소했습니다.");
+  }
+
+  function previewAutosaveSnapshot(snapshotId: string) {
+    const result = restoreAutosaveSnapshot(window.localStorage, snapshotId);
     if (!result.ok) {
+      setPendingSnapshotRestore(null);
       setBackupMessage(result.error);
       return;
     }
-    setWorkspace(result.workspace);
+    setPendingSnapshotRestore({
+      snapshotId,
+      createdAt: result.snapshot.createdAt,
+      workspace: result.workspace,
+      validation: result.validation,
+    });
     setBackupMessage(
       result.validation.isExportSafe
-        ? "workspace 백업을 불러왔습니다."
-        : `workspace를 불러왔지만 내보내기 전에 고칠 것 ${result.validation.errors.length}개가 있습니다.`,
+        ? "자동 저장 기록을 미리 봅니다. 복원하려면 확인 버튼을 누르세요."
+        : `자동 저장 기록에 내보내기 전에 고칠 것 ${result.validation.errors.length}개가 있습니다.`,
     );
+  }
+
+  function applyAutosaveSnapshot() {
+    if (!pendingSnapshotRestore) return;
+    const nextWorkspace = {
+      ...pendingSnapshotRestore.workspace,
+      updatedAt: new Date().toISOString(),
+    };
+    if (commitWorkspace(nextWorkspace, "자동 저장 기록으로 복원했습니다.")) {
+      setPendingSnapshotRestore(null);
+      setBackupMessage("자동 저장 기록으로 복원했습니다.");
+      navigateTo(projectRoute(nextWorkspace.project.id, "review"));
+    }
   }
 
   function validateProjectForm(): string | null {
@@ -812,6 +915,46 @@ export default function App() {
               </div>
               <p className="muted export-file-name">SQLite/native file 저장은 desktop packaging 단계에서 붙일 수 있도록 repository 경계를 유지합니다.</p>
               {backupMessage ? <p className="notice info">{backupMessage}</p> : null}
+              {pendingBackupImport ? (
+                <div className="recovery-preview" aria-label="백업 불러오기 미리보기">
+                  <div>
+                    <strong>{pendingBackupImport.workspace.project.name}</strong>
+                    <p>내보낸 시각: {pendingBackupImport.exportedAt} · {formatDateTime(pendingBackupImport.exportedAt)}</p>
+                    <p>{validationStatusLabel(pendingBackupImport.validation)}</p>
+                  </div>
+                  <div className="button-row">
+                    <button type="button" onClick={applyBackupMerge}>백업 병합</button>
+                    <button className="danger" type="button" onClick={applyBackupReplace}>백업으로 교체</button>
+                    <button className="secondary" type="button" onClick={cancelBackupImport}>취소</button>
+                  </div>
+                </div>
+              ) : null}
+              {snapshotSummaries.length ? (
+                <div className="recovery-list" aria-label="자동 저장 기록">
+                  {snapshotSummaries.map((snapshot) => (
+                    <article className="recovery-preview" key={snapshot.id}>
+                      <div>
+                        <strong>{snapshot.projectName}</strong>
+                        <p>{snapshot.createdAt} · {formatDateTime(snapshot.createdAt)}</p>
+                        <p>{validationStatusLabel(snapshot.validation)}</p>
+                      </div>
+                      <button className="secondary" type="button" onClick={() => previewAutosaveSnapshot(snapshot.id)}>복원 미리보기</button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted export-file-name">아직 자동 저장 기록이 없습니다.</p>
+              )}
+              {pendingSnapshotRestore ? (
+                <div className="recovery-preview" aria-label="자동 저장 복원 미리보기">
+                  <div>
+                    <strong>{pendingSnapshotRestore.workspace.project.name}</strong>
+                    <p>저장 시각: {pendingSnapshotRestore.createdAt} · {formatDateTime(pendingSnapshotRestore.createdAt)}</p>
+                    <p>{validationStatusLabel(pendingSnapshotRestore.validation)}</p>
+                  </div>
+                  <button type="button" onClick={applyAutosaveSnapshot}>이 기록으로 복원</button>
+                </div>
+              ) : null}
             </section>
 
             {aiSettingsPanel}
@@ -900,6 +1043,11 @@ function countConfirmed(objects: XraySuggestionSet): number {
 
 function findWorkspaceObject(workspace: ProjectWorkspace, bucket: ObjectBucket, id: string): XrayObject | undefined {
   return (workspace.objects[bucket] as XrayObject[]).find((object) => object.id === id);
+}
+
+function validationStatusLabel(validation: ReturnType<typeof validateWorkspace>): string {
+  if (validation.isExportSafe) return `내보내기 가능 · 확인 필요 ${validation.warnings.length}개`;
+  return `내보내기 전에 고칠 것 ${validation.errors.length}개 · 확인 필요 ${validation.warnings.length}개`;
 }
 
 function formatDateTime(value: string): string {

@@ -44,7 +44,13 @@ import {
   loadProjectWorkspace,
   summarizeProjects,
 } from "../dist/storage/project-repository.js";
-import { importWorkspaceBackup, serializeWorkspaceBackup } from "../dist/storage/workspace-backup.js";
+import {
+  importWorkspaceBackup,
+  mergeWorkspaceBackup,
+  parseWorkspaceBackup,
+  replaceWorkspaceFromBackup,
+  serializeWorkspaceBackup,
+} from "../dist/storage/workspace-backup.js";
 
 test("confirmed status only includes accepted and edited", () => {
   assert.equal(isConfirmedStatus("suggested"), false);
@@ -1051,6 +1057,128 @@ test("workspace backup import rejects malformed input and preserves confirmed ob
 
   assert.equal(result.ok, true);
   assert.equal(result.workspace.objects.screens[0].displayName, current.objects.screens[0].displayName);
+});
+
+test("workspace backup parser reports malformed JSON schema mismatch and required fields", () => {
+  assert.deepEqual(parseWorkspaceBackup("{bad-json"), {
+    ok: false,
+    error: "백업 파일을 읽을 수 없습니다. JSON 형식을 확인하세요.",
+  });
+
+  assert.deepEqual(parseWorkspaceBackup(JSON.stringify({ schemaVersion: "2.0.0", workspace: {} })), {
+    ok: false,
+    error: "지원하지 않는 백업 버전입니다.",
+  });
+
+  assert.deepEqual(parseWorkspaceBackup(JSON.stringify({ schemaVersion: "1.0.0", exportedAt: "2026-07-01T01:00:00.000Z" })), {
+    ok: false,
+    error: "백업 파일에 필요한 workspace 필드가 없습니다.",
+  });
+
+  assert.deepEqual(
+    parseWorkspaceBackup(
+      JSON.stringify({
+        schemaVersion: "1.0.0",
+        exportedAt: "2026-07-01T01:00:00.000Z",
+        workspace: {
+          project: fieldPowerAppProject,
+          sourceDocuments: [],
+          objects: {},
+          buildPlanSuggestions: [],
+          updatedAt: "2026-07-01T01:00:00.000Z",
+        },
+      }),
+    ),
+    {
+      ok: false,
+      error: "백업 파일에 필요한 workspace 필드가 없습니다.",
+    },
+  );
+
+  assert.deepEqual(
+    parseWorkspaceBackup(
+      JSON.stringify({
+        schemaVersion: "1.0.0",
+        exportedAt: "2026-07-01T01:00:00.000Z",
+        workspace: confirmedWorkspace({
+          objects: {
+            ...emptySuggestionSetForTest(),
+            screens: [
+              {
+                id: "screen_malformed",
+                projectId: fieldPowerAppProject.id,
+                status: "accepted",
+                createdAt: "2026-07-01T01:00:00.000Z",
+                updatedAt: "2026-07-01T01:00:00.000Z",
+              },
+            ],
+          },
+        }),
+      }),
+    ),
+    {
+      ok: false,
+      error: "백업 파일에 필요한 workspace 필드가 없습니다.",
+    },
+  );
+
+  assert.deepEqual(
+    parseWorkspaceBackup(
+      JSON.stringify({
+        schemaVersion: "1.0.0",
+        exportedAt: "2026-07-01T01:00:00.000Z",
+        workspace: confirmedWorkspace({
+          objects: {
+            ...emptySuggestionSetForTest(),
+            screens: [
+              {
+                id: "screen_malformed_suggested",
+                projectId: fieldPowerAppProject.id,
+                status: "suggested",
+                createdAt: "2026-07-01T01:00:00.000Z",
+                updatedAt: "2026-07-01T01:00:00.000Z",
+              },
+            ],
+          },
+        }),
+      }),
+    ),
+    {
+      ok: false,
+      error: "백업 파일에 필요한 workspace 필드가 없습니다.",
+    },
+  );
+});
+
+test("workspace backup import separates preview merge and replace confirmation choices", () => {
+  const current = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_current", name: "현재 프로젝트" },
+    objects: {
+      ...emptySuggestionSetForTest(),
+      screens: [updateXrayObjectStatus(fieldPowerAppSuggestionSet.screens[0], "accepted")],
+    },
+  });
+  const imported = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, id: "project_imported", name: "가져온 백업" },
+    objects: {
+      ...emptySuggestionSetForTest(),
+      screens: [{ ...fieldPowerAppSuggestionSet.screens[0], displayName: "백업 화면 이름", status: "suggested" }],
+    },
+  });
+  const parsed = parseWorkspaceBackup(serializeWorkspaceBackup(imported));
+
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.workspace.project.name, "가져온 백업");
+
+  const merged = mergeWorkspaceBackup(current, parsed.workspace, "2026-07-01T01:00:00.000Z");
+  assert.equal(merged.objects.screens[0].displayName, current.objects.screens[0].displayName);
+  assert.equal(merged.project.name, "현재 프로젝트");
+
+  const replaced = replaceWorkspaceFromBackup(parsed.workspace, "2026-07-01T01:10:00.000Z");
+  assert.equal(replaced.project.name, "가져온 백업");
+  assert.equal(replaced.objects.screens[0].displayName, "백업 화면 이름");
+  assert.equal(replaced.updatedAt, "2026-07-01T01:10:00.000Z");
+  assert.equal(replaced.project.updatedAt, "2026-07-01T01:10:00.000Z");
 });
 
 test("localStorage repository saves reloads and clears a workspace", () => {

@@ -101,7 +101,10 @@ test("downloads a workspace backup and imports it into the current workspace", a
 
   await page.getByRole("link", { name: "백업" }).click();
   await page.locator("#backup input[type='file']").setInputFiles(backupPath);
-  await expect(page.getByText("workspace 백업을 불러왔습니다.")).toBeVisible();
+  await expect(page.getByText("백업 내용을 확인했습니다. 병합, 교체, 취소 중 하나를 선택하세요.")).toBeVisible();
+  await expect(page.locator("[aria-label='백업 불러오기 미리보기']")).toContainText("E2E 백업 원본");
+  await page.getByRole("button", { name: "백업 병합" }).click();
+  await expect(page.locator("#backup").getByText("workspace 백업을 병합했습니다.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "E2E 백업 가져오기 대상" })).toBeVisible();
   await expect(reviewRow(page, "앱이 저장할 정보", "대상 프로젝트 보존 부하").locator(".badge.edited")).toHaveText("수정 확정");
   await expect(reviewRow(page, "화면", "대시보드").locator(".badge.accepted")).toHaveText("확정");

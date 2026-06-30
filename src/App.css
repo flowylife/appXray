@@ -899,6 +899,31 @@ textarea {
   padding: 0.35rem 0.6rem;
 }
 
+.recovery-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.recovery-preview {
+  align-items: center;
+  background: #fbfcfc;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  display: flex;
+  gap: 0.9rem;
+  justify-content: space-between;
+  margin-top: 0.85rem;
+  padding: 0.85rem;
+}
+
+.recovery-preview p {
+  color: #60706b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0.2rem 0 0;
+}
+
 .build-plan-step {
   background: #fbfcfc;
   border: 1px solid #dfe7e4;
@@ -989,6 +1014,11 @@ textarea {
   }
 
   .template-preview {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .recovery-preview {
     align-items: stretch;
     display: grid;
   }
