@@ -362,15 +362,15 @@ Acceptance criteria:
 - Modify: `README.md`
 - Optional Create: `scripts/check-release.mjs`
 
-- [ ] Document browser-only release constraints: localStorage capacity, browser BYOK CORS, file access limits, no native encrypted keychain.
-- [ ] Document desktop release benefits: native file storage, local encrypted settings, local model bridge option, safer backup location.
-- [ ] Compare Electron, Tauri, and browser-only PWA against maintenance cost.
-- [ ] If a release script is added, make it run `npm run typecheck`, `npm test`, and `npm run build` in sequence and report failures clearly.
-- [ ] Do not add Electron or Tauri in this task.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `docs: evaluate App X-Ray desktop packaging`.
+- [x] Document browser-only release constraints: localStorage capacity, browser BYOK CORS, file access limits, no native encrypted keychain.
+- [x] Document desktop release benefits: native file storage, local encrypted settings, local model bridge option, safer backup location.
+- [x] Compare Electron, Tauri, and browser-only PWA against maintenance cost.
+- [x] If a release script is added, make it run `npm run typecheck`, `npm test`, and `npm run build` in sequence and report failures clearly. No release script was added in this task.
+- [x] Do not add Electron or Tauri in this task.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `docs: evaluate App X-Ray desktop packaging`.
 
 Acceptance criteria:
 
