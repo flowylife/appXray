@@ -198,17 +198,17 @@ Risk gate:
 - Test: `test/domain.test.mjs`
 - Create: `test/ui-review-workbench.test.mjs`
 
-- [ ] Add domain tests for bulk accept by bucket, bulk reject by bucket, and preserving edited objects during rerun merge.
-- [ ] Add domain tests for undoing the most recent status decision within the current session.
-- [ ] Add review UI tests for filter by bucket, filter by status, search by name/description, bulk action, inline edit, and undo.
-- [ ] Split review rendering into focused subcomponents only if `ReviewPanel.tsx` becomes hard to reason about during implementation.
-- [ ] Add visible counts for all statuses per bucket.
-- [ ] Add keyboard-safe controls with labels for accept, edit, reject, defer, and undo.
-- [ ] Add a merge-impact panel after rerun showing added, refreshed, preserved, and status-changed suggestions.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: improve suggestion review workbench`.
+- [x] Add domain tests for bulk accept by bucket, bulk reject by bucket, and preserving edited objects during rerun merge.
+- [x] Add domain tests for undoing the most recent status decision within the current session.
+- [x] Add review UI tests for filter by bucket, filter by status, search by name/description, bulk action, inline edit, and undo.
+- [x] Split review rendering into focused subcomponents only if `ReviewPanel.tsx` becomes hard to reason about during implementation.
+- [x] Add visible counts for all statuses per bucket.
+- [x] Add keyboard-safe controls with labels for accept, edit, reject, defer, and undo.
+- [x] Add a merge-impact panel after rerun showing added, refreshed, preserved, and status-changed suggestions.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: improve suggestion review workbench`.
 
 Acceptance criteria:
 
