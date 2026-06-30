@@ -114,10 +114,32 @@ export function exportable<T extends { status: SuggestionStatus }>(
   options: ExportOptions = {},
 ): T[] {
   const statuses = options.includeStatuses ?? DEFAULT_EXPORT_STATUSES;
-  if (statuses.length === 2 && statuses.includes("accepted") && statuses.includes("edited")) {
-    return getDefaultExportableObjects(objects as readonly (T & { id: string; projectId: string; createdAt: string; updatedAt: string })[]);
-  }
-  return objects.filter((object) => statuses.includes(object.status));
+  const filtered = statuses.length === 2 && statuses.includes("accepted") && statuses.includes("edited")
+    ? getDefaultExportableObjects(objects as readonly (T & { id: string; projectId: string; createdAt: string; updatedAt: string })[])
+    : objects.filter((object) => statuses.includes(object.status));
+
+  return stableExportOrder(filtered);
+}
+
+export function stableExportOrder<T>(objects: readonly T[]): T[] {
+  return [...objects].sort((a, b) => stableSortKey(a).localeCompare(stableSortKey(b), "ko"));
+}
+
+function stableSortKey(value: unknown): string {
+  if (!value || typeof value !== "object") return String(value);
+  const record = value as Record<string, unknown>;
+  const order = typeof record.orderIndex === "number"
+    ? String(record.orderIndex).padStart(8, "0")
+    : typeof record.stepOrder === "number"
+      ? String(record.stepOrder).padStart(8, "0")
+      : "99999999";
+  const label = stringValue(record.displayName) ?? stringValue(record.title) ?? stringValue(record.name) ?? "";
+  const id = stringValue(record.id) ?? "";
+  return `${order}:${label}:${id}`;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function label(displayName: string | undefined, name: string): string {

@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ExportType } from "../export/export-content.js";
-import { downloadTextFile, getExportContent, getExportFileName, type ExportMode } from "../export/export-content.js";
+import {
+  downloadTextFile,
+  getExportContent,
+  getExportDescription,
+  getExportFileName,
+  type ExportMode,
+} from "../export/export-content.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
 import { validateWorkspace, type ValidationIssue } from "../domain/validation.js";
 import { getValidationIssueTarget, getValidationRepairActionLabel } from "../domain/validation-actions.js";
@@ -22,9 +28,25 @@ export function ExportPanel({
 }) {
   const [exportMode, setExportMode] = useState<ExportMode>("confirmedOnly");
   const [includeValidationAppendix, setIncludeValidationAppendix] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">("idle");
   const exportPreview = getExportContent(workspace, activeExport, { mode: exportMode, includeValidationAppendix });
   const fileName = getExportFileName(workspace, activeExport);
   const validation = validateWorkspace(workspace);
+  const exportDescription = getExportDescription(activeExport);
+
+  useEffect(() => {
+    setCopyStatus("idle");
+  }, [activeExport, exportMode, includeValidationAppendix, workspace.updatedAt]);
+
+  async function copyPreview() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API is unavailable.");
+      await navigator.clipboard.writeText(exportPreview);
+      setCopyStatus("success");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
 
   return (
     <section className="panel" id="export">
@@ -78,6 +100,12 @@ export function ExportPanel({
         ) : null}
       </div>
       <div className="export-options" aria-label="Export options">
+        <div className="export-mode-note" aria-label="Export mode notice">
+          <span className={exportMode === "confirmedOnly" ? "active-mode-label" : ""}>확정 데이터만 내보내는 기본 모드</span>
+          <span className={exportMode === "auditTrail" ? "audit-trail-label active-mode-label" : "audit-trail-label"}>
+            검토 이력 포함 모드: suggested, rejected, deferred 항목도 감사용으로 표시됩니다.
+          </span>
+        </div>
         <div className="segmented">
           <button className={exportMode === "confirmedOnly" ? "active" : ""} type="button" onClick={() => setExportMode("confirmedOnly")}>확정만</button>
           <button className={exportMode === "auditTrail" ? "active" : ""} type="button" onClick={() => setExportMode("auditTrail")}>검토 이력 포함</button>
@@ -96,13 +124,26 @@ export function ExportPanel({
         <button className={activeExport === "appMermaid" ? "active" : ""} onClick={() => onExportChange("appMermaid")}>App Mermaid</button>
         <button className={activeExport === "dataMermaid" ? "active" : ""} onClick={() => onExportChange("dataMermaid")}>Data Mermaid</button>
         <button className={activeExport === "json" ? "active" : ""} onClick={() => onExportChange("json")}>JSON</button>
+        <button className={activeExport === "dataObjectsCsv" ? "active" : ""} onClick={() => onExportChange("dataObjectsCsv")}>Data Objects CSV</button>
+        <button className={activeExport === "issuesCsv" ? "active" : ""} onClick={() => onExportChange("issuesCsv")}>Issues CSV</button>
         <button className={activeExport === "codexPrompt" ? "active" : ""} onClick={() => onExportChange("codexPrompt")}>Codex Prompt</button>
         <button className={activeExport === "cursorPrompt" ? "active" : ""} onClick={() => onExportChange("cursorPrompt")}>Cursor Prompt</button>
         <button className={activeExport === "githubIssues" ? "active" : ""} onClick={() => onExportChange("githubIssues")}>GitHub Issues</button>
         <button className={activeExport === "bundle" ? "active" : ""} onClick={() => onExportChange("bundle")}>Bundle</button>
       </div>
+      <div className="export-description" aria-label="Export format description">
+        <strong>{fileName}</strong>
+        <p>{exportDescription}</p>
+      </div>
       <p className="muted export-file-name">지원 예정: {UPCOMING_EXPORTS.join(", ")}</p>
       <p className="muted export-file-name">파일명: {fileName}</p>
+      <div className="export-preview-actions">
+        <button className="secondary" type="button" onClick={copyPreview}>미리보기 복사</button>
+        <span aria-live="polite">
+          {copyStatus === "success" ? "미리보기를 클립보드에 복사했습니다." : null}
+          {copyStatus === "error" ? "클립보드에 복사할 수 없습니다." : null}
+        </span>
+      </div>
       <pre className="preview">{exportPreview}</pre>
     </section>
   );

@@ -34,7 +34,8 @@ import { exportGithubIssuesMarkdown } from "../dist/export/github-issues.js";
 import { exportProjectJson } from "../dist/export/json.js";
 import { exportProjectMarkdown } from "../dist/export/markdown.js";
 import { exportAppMapMermaid, exportDataMapMermaid } from "../dist/export/mermaid.js";
-import { getExportContent, getExportFileName } from "../dist/export/export-content.js";
+import { exportDataObjectsCsv, exportIssuesCsv } from "../dist/export/csv.js";
+import { createExportBundle, getExportContent, getExportFileName } from "../dist/export/export-content.js";
 import { createBuildPrompt } from "../dist/prompt/build-prompt.js";
 import {
   createLocalStorageProjectRepository,
@@ -375,22 +376,194 @@ test("export helpers return stable filenames and preview content", () => {
   assert.equal(getExportFileName(workspace, "codexPrompt"), "app-xray-현장-전력설비-관리-앱-codex.md");
   assert.equal(getExportFileName(workspace, "cursorPrompt"), "app-xray-현장-전력설비-관리-앱-cursor.md");
   assert.equal(getExportFileName(workspace, "bundle"), "app-xray-현장-전력설비-관리-앱-bundle.json");
+  assert.equal(getExportFileName(workspace, "dataObjectsCsv"), "app-xray-현장-전력설비-관리-앱-data-objects.csv");
+  assert.equal(getExportFileName(workspace, "issuesCsv"), "app-xray-현장-전력설비-관리-앱-issues.csv");
   assert.equal(getExportContent(workspace, "markdown"), exportProjectMarkdown(workspace));
   assert.equal(getExportContent(workspace, "json"), exportProjectJson(workspace));
   assert.equal(getExportContent(workspace, "codexPrompt"), createBuildPrompt(workspace, { targetTool: "codex" }));
+  assert.equal(getExportContent(workspace, "dataObjectsCsv"), exportDataObjectsCsv(workspace));
+  assert.equal(getExportContent(workspace, "issuesCsv"), exportIssuesCsv(workspace));
 });
 
-test("export bundle contains deterministic confirmed-only files", () => {
+test("export bundle contains manifest metadata and deterministic confirmed-only files", () => {
   const workspace = confirmedWorkspace();
-  const bundle = JSON.parse(getExportContent(workspace, "bundle"));
+  const bundle = createExportBundle(workspace, {
+    generatedAt: "2026-07-01T00:00:00.000Z",
+    includeValidationAppendix: true,
+  });
+  const validation = validateWorkspace(workspace);
 
   assert.equal(bundle.projectId, workspace.project.id);
+  assert.equal(bundle.manifest.appVersion, "0.0.0");
+  assert.equal(bundle.manifest.exportMode, "confirmedOnly");
+  assert.equal(bundle.manifest.generatedAt, "2026-07-01T00:00:00.000Z");
+  assert.deepEqual(bundle.manifest.validationSummary, {
+    errorCount: validation.errors.length,
+    warningCount: validation.warnings.length,
+    isExportSafe: validation.isExportSafe,
+  });
   assert.deepEqual(
     bundle.files.map((file) => file.exportType),
-    ["markdown", "appMermaid", "dataMermaid", "json", "codexPrompt", "cursorPrompt", "githubIssues"],
+    [
+      "markdown",
+      "appMermaid",
+      "dataMermaid",
+      "json",
+      "dataObjectsCsv",
+      "issuesCsv",
+      "codexPrompt",
+      "cursorPrompt",
+      "githubIssues",
+    ],
   );
-  assert.equal(getExportContent(workspace, "bundle"), getExportContent(workspace, "bundle"));
+  assert.deepEqual(
+    bundle.manifest.files.map((file) => file.fileName),
+    bundle.files.map((file) => file.fileName),
+  );
   assert.match(bundle.files.find((file) => file.exportType === "json").content, /"objects"/);
+  assert.match(bundle.files.find((file) => file.exportType === "dataObjectsCsv").content, /displayName/);
+});
+
+test("all export types preserve Korean text and stable content order", () => {
+  const [firstScreen, secondScreen] = fieldPowerAppSuggestionSet.screens;
+  const [firstFeature, secondFeature] = fieldPowerAppSuggestionSet.features;
+  const [firstObject, secondObject] = fieldPowerAppSuggestionSet.dataObjects;
+  const [firstField, secondField] = fieldPowerAppSuggestionSet.dataFields;
+  const [firstIssue, secondIssue] = fieldPowerAppSuggestionSet.issues;
+  assert.ok(firstScreen);
+  assert.ok(secondScreen);
+  assert.ok(firstFeature);
+  assert.ok(secondFeature);
+  assert.ok(firstObject);
+  assert.ok(secondObject);
+  assert.ok(firstField);
+  assert.ok(secondField);
+  assert.ok(firstIssue);
+  assert.ok(secondIssue);
+
+  const stableWorkspace = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, name: "정렬 검증 앱" },
+    objects: {
+      ...emptySuggestionSetForTest(),
+      screens: [
+        updateXrayObjectStatus({ ...secondScreen, id: "screen_b", displayName: "부하 목록" }, "accepted"),
+        updateXrayObjectStatus({ ...firstScreen, id: "screen_a", displayName: "대시보드" }, "accepted"),
+      ],
+      features: [
+        updateXrayObjectStatus({ ...secondFeature, id: "feature_b", screenId: "screen_b", name: "목록 검색" }, "accepted"),
+        updateXrayObjectStatus({ ...firstFeature, id: "feature_a", screenId: "screen_a", name: "알람 확인" }, "accepted"),
+      ],
+      dataObjects: [
+        updateXrayObjectStatus({ ...secondObject, id: "object_b", name: "Load", displayName: "부하" }, "accepted"),
+        updateXrayObjectStatus({ ...firstObject, id: "object_a", name: "Alarm", displayName: "알람" }, "accepted"),
+      ],
+      dataFields: [
+        updateXrayObjectStatus({ ...secondField, id: "field_b", dataObjectId: "object_b", name: "부하명" }, "accepted"),
+        updateXrayObjectStatus({ ...firstField, id: "field_a", dataObjectId: "object_a", name: "알람명" }, "accepted"),
+      ],
+      issues: [
+        updateXrayObjectStatus({ ...secondIssue, id: "issue_b", title: "부하 상태값 확정", severity: "medium" }, "accepted"),
+        updateXrayObjectStatus({ ...firstIssue, id: "issue_a", title: "알람 기준 확정", severity: "low" }, "accepted"),
+      ],
+    },
+  });
+  const reorderedWorkspace = {
+    ...stableWorkspace,
+    objects: Object.fromEntries(
+      Object.entries(stableWorkspace.objects).map(([bucket, objects]) => [bucket, [...objects].reverse()]),
+    ),
+  };
+
+  const exportTypes = [
+    "markdown",
+    "appMermaid",
+    "dataMermaid",
+    "json",
+    "dataObjectsCsv",
+    "issuesCsv",
+    "codexPrompt",
+    "cursorPrompt",
+    "githubIssues",
+  ];
+
+  for (const exportType of exportTypes) {
+    const content = getExportContent(stableWorkspace, exportType);
+    assert.equal(content, getExportContent(reorderedWorkspace, exportType), `${exportType} should use stable ordering`);
+    assert.match(content, /대시보드|알람|부하/, `${exportType} should preserve Korean text`);
+  }
+});
+
+test("csv exports use deterministic UTF-8 text headers and quote escaping", () => {
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  const [issue] = fieldPowerAppSuggestionSet.issues;
+  assert.ok(dataObject);
+  assert.ok(issue);
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [
+        updateXrayObjectStatus(
+          {
+            ...dataObject,
+            id: "object_csv",
+            name: "Load",
+            displayName: "부하, 설비",
+            description: "현장 \"주요\" 설비",
+          },
+          "accepted",
+        ),
+      ],
+      issues: [
+        updateXrayObjectStatus(
+          {
+            ...issue,
+            id: "issue_csv",
+            title: "알람 기준",
+            description: "상태값\n정의 필요",
+            suggestion: "high, medium, low",
+          },
+          "accepted",
+        ),
+      ],
+    },
+  });
+
+  assert.equal(
+    exportDataObjectsCsv(workspace).split("\n")[0],
+    "id,status,name,displayName,objectType,description,fieldCount,relationCount",
+  );
+  assert.match(exportDataObjectsCsv(workspace), /"부하, 설비"/);
+  assert.match(exportDataObjectsCsv(workspace), /"현장 ""주요"" 설비"/);
+  assert.equal(
+    exportIssuesCsv(workspace).split("\n")[0],
+    "id,status,severity,issueType,title,description,suggestion,resolutionNote,includeInPrompt,relatedScreenId,relatedDataObjectId,relatedFeatureId",
+  );
+  assert.match(exportIssuesCsv(workspace), /"상태값\n정의 필요"/);
+  assert.match(exportIssuesCsv(workspace), /"high, medium, low"/);
+});
+
+test("all export types provide explicit empty-state content", () => {
+  const workspace = confirmedWorkspace({
+    project: { ...fieldPowerAppProject, name: "빈 내보내기 앱" },
+    objects: emptySuggestionSetForTest(),
+    buildPlanSuggestions: [],
+  });
+  const expectedEmptyPatterns = {
+    markdown: /- None/,
+    appMermaid: /%% No confirmed screens/,
+    dataMermaid: /%% No confirmed data objects/,
+    json: /"screens": \[\]/,
+    dataObjectsCsv: /^id,status,name,displayName,objectType,description,fieldCount,relationCount$/,
+    issuesCsv: /^id,status,severity,issueType,title,description,suggestion,resolutionNote,includeInPrompt,relatedScreenId,relatedDataObjectId,relatedFeatureId$/,
+    codexPrompt: /- None/,
+    cursorPrompt: /- None/,
+    githubIssues: /- None/,
+    bundle: /"files"/,
+  };
+
+  for (const [exportType, pattern] of Object.entries(expectedEmptyPatterns)) {
+    assert.match(getExportContent(workspace, exportType, { generatedAt: "2026-07-01T00:00:00.000Z" }), pattern);
+  }
 });
 
 test("workspace validation catches broken confirmed data relations", () => {
@@ -790,7 +963,9 @@ test("prompt target supports Codex Cursor Lovable Replit and Bolt", () => {
 
 test("audit export mode includes suggested and rejected records only when requested", () => {
   const [screen] = fieldPowerAppSuggestionSet.screens;
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
   assert.ok(screen);
+  assert.ok(dataObject);
   const workspace = {
     ...confirmedWorkspace(),
     objects: {
@@ -800,12 +975,23 @@ test("audit export mode includes suggested and rejected records only when reques
         { ...screen, id: "screen_suggested", displayName: "검토 화면", status: "suggested" },
         updateXrayObjectStatus({ ...screen, id: "screen_rejected", displayName: "제외 화면" }, "rejected"),
       ],
+      dataObjects: [
+        { ...dataObject, id: "object_suggested", name: "SuggestedObject", status: "suggested" },
+        updateXrayObjectStatus({ ...dataObject, id: "object_rejected", name: "RejectedObject" }, "rejected"),
+      ],
     },
   };
 
   assert.doesNotMatch(getExportContent(workspace, "markdown"), /검토 화면/);
   assert.match(getExportContent(workspace, "markdown", { mode: "auditTrail" }), /검토 화면/);
   assert.match(getExportContent(workspace, "json", { mode: "auditTrail", includeValidationAppendix: true }), /"validation"/);
+  assert.doesNotMatch(getExportContent(workspace, "appMermaid"), /검토 화면/);
+  assert.match(getExportContent(workspace, "appMermaid", { mode: "auditTrail" }), /Audit trail export/);
+  assert.match(getExportContent(workspace, "appMermaid", { mode: "auditTrail" }), /검토 화면 \[suggested\]/);
+  assert.match(getExportContent(workspace, "appMermaid", { mode: "auditTrail" }), /제외 화면 \[rejected\]/);
+  assert.match(getExportContent(workspace, "dataMermaid", { mode: "auditTrail" }), /Audit trail export/);
+  assert.match(getExportContent(workspace, "dataMermaid", { mode: "auditTrail" }), /review_status "suggested"/);
+  assert.match(getExportContent(workspace, "dataMermaid", { mode: "auditTrail" }), /review_status "rejected"/);
 });
 
 test("AI provider settings persist locally without exposing API key publicly", () => {

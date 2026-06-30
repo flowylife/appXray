@@ -759,6 +759,48 @@ textarea {
   margin-bottom: 0.85rem;
 }
 
+.export-mode-note,
+.export-description,
+.export-preview-actions {
+  align-items: center;
+  background: #f7faf9;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  color: #40504c;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.export-mode-note .audit-trail-label {
+  color: #8f321e;
+}
+
+.export-mode-note .active-mode-label {
+  font-weight: 900;
+}
+
+.export-description {
+  align-items: start;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.export-description p,
+.export-preview-actions span {
+  color: #60706b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.export-preview-actions {
+  justify-content: space-between;
+}
+
 .export-options {
   display: grid;
   gap: 0.55rem;
