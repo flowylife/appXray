@@ -26,6 +26,7 @@ import {
   isConfirmedXrayObject,
 } from "../dist/domain/status.js";
 import { validateWorkspace } from "../dist/domain/validation.js";
+import { getValidationRepairActionLabel, getValidationReviewRoute } from "../dist/domain/validation-actions.js";
 import { applyTemplateToWorkspace, validateTemplateManifest } from "../dist/domain/template.js";
 import { fieldPowerAppProject, fieldPowerAppSourceDocument } from "../dist/fixtures/field-power-app.js";
 import { fieldPowerTemplate } from "../dist/fixtures/field-power-template.js";
@@ -417,7 +418,15 @@ test("workspace validation catches broken confirmed data relations", () => {
   const report = validateWorkspace(workspace);
 
   assert.equal(report.isExportSafe, false);
-  assert.ok(report.errors.some((issue) => issue.code === "broken_relation"));
+  const issue = report.errors.find((candidate) => candidate.code === "broken_relation");
+  assert.ok(issue);
+  assert.equal(issue.targetBucket, "dataRelations");
+  assert.equal(issue.targetId, relation.id);
+  assert.equal(issue.relatedBucket, issue.targetBucket);
+  assert.equal(issue.relatedObjectId, issue.targetId);
+  assert.equal(issue.suggestedAction, "remove_broken_relation");
+  assert.equal(getValidationRepairActionLabel(issue), "끊긴 연결 제외");
+  assert.equal(getValidationReviewRoute(issue, workspace.project.id), "#/projects/project_field_power/review");
 });
 
 test("workspace validation catches duplicate confirmed names", () => {
@@ -437,7 +446,99 @@ test("workspace validation catches duplicate confirmed names", () => {
   const report = validateWorkspace(workspace);
 
   assert.equal(report.isExportSafe, false);
-  assert.ok(report.errors.some((issue) => issue.code === "duplicate_name"));
+  const issue = report.errors.find((candidate) => candidate.code === "duplicate_name");
+  assert.ok(issue);
+  assert.equal(issue.targetBucket, "dataObjects");
+  assert.equal(issue.targetId, second.id);
+  assert.equal(issue.suggestedAction, "mark_duplicate_deferred");
+  assert.equal(getValidationRepairActionLabel(issue), "중복 항목 나중에 결정");
+});
+
+test("workspace validation gives each duplicate name issue a stable unique id", () => {
+  const [first, second] = fieldPowerAppSuggestionSet.dataObjects;
+  assert.ok(first);
+  assert.ok(second);
+  const third = { ...second, id: "data_object_third_duplicate", name: "third_duplicate" };
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [
+        updateXrayObjectStatus({ ...first, displayName: "설비" }, "accepted"),
+        updateXrayObjectStatus({ ...second, displayName: "설비" }, "edited"),
+        updateXrayObjectStatus({ ...third, displayName: "설비" }, "accepted"),
+      ],
+    },
+  });
+  const duplicateIssues = validateWorkspace(workspace).errors.filter((issue) => issue.code === "duplicate_name");
+
+  assert.equal(duplicateIssues.length, 2);
+  assert.deepEqual(new Set(duplicateIssues.map((issue) => issue.id)).size, duplicateIssues.length);
+  assert.ok(duplicateIssues.some((issue) => issue.id.includes(second.id)));
+  assert.ok(duplicateIssues.some((issue) => issue.id.includes(third.id)));
+});
+
+test("workspace validation catches confirmed fields without a confirmed data object", () => {
+  const [field] = fieldPowerAppSuggestionSet.dataFields;
+  assert.ok(field);
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataFields: [updateXrayObjectStatus({ ...field, dataObjectId: "missing_data_object" }, "accepted")],
+    },
+  });
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.isExportSafe, false);
+  const issue = report.errors.find((candidate) => candidate.code === "orphan_field");
+  assert.ok(issue);
+  assert.equal(issue.targetBucket, "dataFields");
+  assert.equal(issue.targetId, field.id);
+  assert.equal(issue.suggestedAction, "review_target");
+});
+
+test("workspace validation catches empty confirmed object names", () => {
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  assert.ok(dataObject);
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [updateXrayObjectStatus({ ...dataObject, name: " ", displayName: " " }, "accepted")],
+    },
+  });
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.isExportSafe, false);
+  const issue = report.errors.find((candidate) => candidate.code === "empty_object_name");
+  assert.ok(issue);
+  assert.equal(issue.targetBucket, "dataObjects");
+  assert.equal(issue.targetId, dataObject.id);
+  assert.equal(issue.suggestedAction, "review_target");
+});
+
+test("workspace validation catches non-confirmed export contamination references", () => {
+  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  const [field] = fieldPowerAppSuggestionSet.dataFields;
+  assert.ok(dataObject);
+  assert.ok(field);
+
+  const workspace = confirmedWorkspace({
+    objects: {
+      ...emptySuggestionSetForTest(),
+      dataObjects: [{ ...dataObject, status: "suggested" }],
+      dataFields: [updateXrayObjectStatus({ ...field, dataObjectId: dataObject.id }, "accepted")],
+    },
+  });
+  const report = validateWorkspace(workspace);
+
+  assert.equal(report.isExportSafe, false);
+  const issue = report.errors.find((candidate) => candidate.code === "non_confirmed_export");
+  assert.ok(issue);
+  assert.equal(issue.targetBucket, "dataFields");
+  assert.equal(issue.targetId, field.id);
+  assert.equal(issue.suggestedAction, "review_target");
 });
 
 test("workspace validation warns when confirmed data object has no confirmed fields", () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { StructureDiffReport } from "../domain/diff.js";
 import type {
   ActionType,
@@ -14,6 +14,8 @@ import type {
   XraySuggestionSet,
 } from "../domain/types.js";
 import type { AnalysisChange, WorkspaceAnalysisSummary } from "../domain/workspace.js";
+import type { ValidationIssue } from "../domain/validation.js";
+import { getValidationIssueTarget, getValidationTargetElementId } from "../domain/validation-actions.js";
 
 export const STATUS_LABELS: Record<SuggestionStatus, string> = {
   suggested: "검토 대기",
@@ -149,6 +151,8 @@ export function ReviewPanel({
   analysisChanges = [],
   analysisSummary,
   structureDiff,
+  validationIssues = [],
+  focusedValidationIssue,
   canUndoStatus,
   onStatus,
   onBulkStatus,
@@ -159,6 +163,8 @@ export function ReviewPanel({
   analysisChanges?: AnalysisChange[] | undefined;
   analysisSummary?: WorkspaceAnalysisSummary | undefined;
   structureDiff?: StructureDiffReport | undefined;
+  validationIssues?: ValidationIssue[] | undefined;
+  focusedValidationIssue?: ValidationIssue | null | undefined;
   canUndoStatus: boolean;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onBulkStatus: (bucket: ObjectBucket, objects: XrayObject[], status: SuggestionStatus) => void;
@@ -169,9 +175,18 @@ export function ReviewPanel({
   const [bucketFilter, setBucketFilter] = useState<BucketFilter>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const changeByObjectId = new Map(analysisChanges.map((change) => [change.objectId, change]));
+  const validationIssuesByObject = groupValidationIssuesByObject(validationIssues);
+  const focusedValidationTarget = focusedValidationIssue ? getValidationIssueTarget(focusedValidationIssue) : null;
   const visibleBuckets = (Object.keys(BUCKET_LABELS) as ObjectBucket[]).filter(
     (bucket) => bucketFilter === "all" || bucket === bucketFilter,
   );
+
+  useEffect(() => {
+    if (!focusedValidationTarget) return;
+    setBucketFilter(focusedValidationTarget.bucket);
+    setStatusFilter("all");
+    setSearchTerm("");
+  }, [focusedValidationTarget?.bucket, focusedValidationTarget?.id]);
 
   return (
     <section className="panel" id="review">
@@ -227,6 +242,7 @@ export function ReviewPanel({
           changes={changeByObjectId}
           searchTerm={searchTerm}
           statusFilter={statusFilter}
+          validationIssuesByObject={validationIssuesByObject}
           key={bucket}
           objects={objects[bucket] as XrayObject[]}
           onBulkStatus={onBulkStatus}
@@ -246,6 +262,7 @@ function ReviewGroup({
   statusFilter,
   searchTerm,
   changes,
+  validationIssuesByObject,
   onStatus,
   onBulkStatus,
   onEdit,
@@ -256,6 +273,7 @@ function ReviewGroup({
   searchTerm: string;
   objects: XrayObject[];
   changes: Map<string, AnalysisChange>;
+  validationIssuesByObject: Map<string, ValidationIssue[]>;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onBulkStatus: (bucket: ObjectBucket, objects: XrayObject[], status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
@@ -299,6 +317,7 @@ function ReviewGroup({
             change={changes.get(object.id)}
             key={object.id}
             object={object}
+            validationIssues={validationIssuesByObject.get(validationIssueMapKey(bucket, object.id)) ?? []}
             onEdit={onEdit}
             onStatus={onStatus}
           />
@@ -312,12 +331,14 @@ function ReviewRow({
   bucket,
   object,
   change,
+  validationIssues,
   onStatus,
   onEdit,
 }: {
   bucket: ObjectBucket;
   object: XrayObject;
   change?: AnalysisChange | undefined;
+  validationIssues: ValidationIssue[];
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
@@ -336,7 +357,11 @@ function ReviewRow({
 
   if (isEditing) {
     return (
-      <article className="review-row editing" aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}>
+      <article
+        className="review-row editing"
+        id={getValidationTargetElementId(bucket, object.id)}
+        aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}
+      >
         <div className="edit-fields">
           {EDIT_FIELDS[bucket].map((field) => (
             <EditFieldControl
@@ -348,6 +373,7 @@ function ReviewRow({
           ))}
         </div>
         <StatusBadge status={object.status} />
+        {validationIssues.length > 0 ? <ValidationBadgeStack issues={validationIssues} /> : null}
         <div className="row-actions">
           <button type="button" aria-label={`${getObjectLabel(object)} 저장`} onClick={saveEdit}>저장</button>
           <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} 취소`} onClick={() => setIsEditing(false)}>취소</button>
@@ -357,7 +383,11 @@ function ReviewRow({
   }
 
   return (
-    <article className="review-row" aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}>
+    <article
+      className="review-row"
+      id={getValidationTargetElementId(bucket, object.id)}
+      aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}
+    >
       <div>
         <strong>{getObjectLabel(object)}</strong>
         <p>{getObjectDescription(object)}</p>
@@ -366,6 +396,7 @@ function ReviewRow({
       </div>
       <div className="badge-stack">
         {change ? <AnalysisChangeBadge change={change} /> : null}
+        {validationIssues.length > 0 ? <ValidationBadgeStack issues={validationIssues} /> : null}
         <StatusBadge status={object.status} />
       </div>
       <div className="row-actions">
@@ -448,6 +479,22 @@ export function AnalysisChangeBadge({ change }: { change: AnalysisChange }) {
   };
 
   return <span className={`change-badge ${change.changeType}`}>{labelByType[change.changeType]}</span>;
+}
+
+function ValidationBadgeStack({ issues }: { issues: ValidationIssue[] }) {
+  return (
+    <>
+      {issues.map((issue) => (
+        <span
+          className={`validation-badge ${issue.severity}`}
+          key={issue.id}
+          title={issue.message}
+        >
+          {issue.severity === "error" ? "내보내기 차단" : "확인 필요"}
+        </span>
+      ))}
+    </>
+  );
 }
 
 function MergeImpactPanel({
@@ -568,6 +615,21 @@ function countByStatus(objects: XrayObject[]): Record<ReviewFilter, number> {
       deferred: 0,
     },
   );
+}
+
+function groupValidationIssuesByObject(issues: ValidationIssue[]): Map<string, ValidationIssue[]> {
+  const grouped = new Map<string, ValidationIssue[]>();
+  for (const issue of issues) {
+    const target = getValidationIssueTarget(issue);
+    if (!target) continue;
+    const key = validationIssueMapKey(target.bucket, target.id);
+    grouped.set(key, [...(grouped.get(key) ?? []), issue]);
+  }
+  return grouped;
+}
+
+function validationIssueMapKey(bucket: ObjectBucket, objectId: string): string {
+  return `${bucket}:${objectId}`;
 }
 
 function filterLabel(filter: ReviewFilter): string {

@@ -20,6 +20,8 @@ import { appendSourceDocumentVersion, getLatestSourceDocument } from "./domain/s
 import { isConfirmedXrayObject } from "./domain/status.js";
 import { applyTemplateToWorkspace } from "./domain/template.js";
 import type { BaseXrayObject, SourceDocument, SuggestionStatus, XrayObject, XraySuggestionSet } from "./domain/types.js";
+import { getValidationIssueElementId, getValidationIssueTarget, getValidationReviewRoute } from "./domain/validation-actions.js";
+import { validateWorkspace, type ValidationIssue } from "./domain/validation.js";
 import type { ProjectWorkspace } from "./domain/workspace.js";
 import type { ExportType } from "./export/export-content.js";
 import { fieldPowerAppSourceDocument } from "./fixtures/field-power-app.js";
@@ -55,6 +57,7 @@ export default function App() {
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
   const [statusHistory, setStatusHistory] = useState<ReviewStatusDecisionGroup[]>([]);
+  const [focusedValidationIssue, setFocusedValidationIssue] = useState<ValidationIssue | null>(null);
 
   useEffect(() => {
     if (!workspace) return;
@@ -108,6 +111,8 @@ export default function App() {
       ...(selectedBuildStep ? { buildStepTempId: selectedBuildStep } : {}),
     })
     : "";
+  const validationReport = workspace ? validateWorkspace(workspace) : null;
+  const validationIssues = validationReport ? [...validationReport.errors, ...validationReport.warnings] : [];
   const latestSourceDocument = workspace ? getLatestSourceDocument(workspace) : undefined;
   const aiSettingsPanel = (
     <section className="panel" id="settings-ai">
@@ -294,6 +299,43 @@ export default function App() {
       issue.id,
       editXrayObject(issue, { includeInPrompt: issue.includeInPrompt === false }),
     );
+  }
+
+  function jumpToValidationIssue(issue: ValidationIssue) {
+    if (!workspace) return;
+    setFocusedValidationIssue(issue);
+    navigateTo(getValidationReviewRoute(issue, workspace.project.id));
+    const elementId = getValidationIssueElementId(issue);
+    if (elementId) {
+      window.requestAnimationFrame(() => document.getElementById(elementId)?.scrollIntoView({ block: "center" }));
+    }
+  }
+
+  function repairValidationIssue(issue: ValidationIssue) {
+    if (!workspace) return;
+    const target = getValidationIssueTarget(issue);
+    if (!target) return;
+    const object = findWorkspaceObject(workspace, target.bucket, target.id);
+    if (!object) return;
+
+    if (issue.suggestedAction === "remove_broken_relation") {
+      updateObjectsStatus(target.bucket, [object], "rejected");
+      jumpToValidationIssue(issue);
+      return;
+    }
+    if (issue.suggestedAction === "mark_duplicate_deferred") {
+      updateObjectsStatus(target.bucket, [object], "deferred");
+      jumpToValidationIssue(issue);
+      return;
+    }
+    if (issue.suggestedAction === "exclude_issue_from_prompt" && target.bucket === "issues" && "issueType" in object) {
+      replaceObject(
+        "issues",
+        object.id,
+        editXrayObject(object, { includeInPrompt: false }),
+      );
+      jumpToValidationIssue(issue);
+    }
   }
 
   function replaceObject(bucket: ObjectBucket, id: string, nextObject: XrayObject) {
@@ -665,8 +707,10 @@ export default function App() {
               analysisChanges={workspace.lastAnalysis?.changes}
               analysisSummary={workspace.lastAnalysis}
               canUndoStatus={statusHistory.length > 0}
+              focusedValidationIssue={focusedValidationIssue}
               objects={workspace.objects}
               structureDiff={workspace.lastStructureDiff}
+              validationIssues={validationIssues}
               onBulkStatus={updateObjectsStatus}
               onUndoStatus={undoStatusDecision}
               onStatus={updateObjectStatus}
@@ -746,7 +790,13 @@ export default function App() {
               <BuildPlanPreview steps={workspace.buildPlanSuggestions} />
             </section>
 
-            <ExportPanel activeExport={activeExport} onExportChange={setActiveExport} workspace={workspace} />
+            <ExportPanel
+              activeExport={activeExport}
+              onExportChange={setActiveExport}
+              onJumpToIssue={jumpToValidationIssue}
+              onRepairIssue={repairValidationIssue}
+              workspace={workspace}
+            />
 
             <section className="panel" id="backup">
               <div className="section-heading">
@@ -846,6 +896,10 @@ function countConfirmed(objects: XraySuggestionSet): number {
     (total, collection: BaseXrayObject[]) => total + collection.filter(isConfirmedXrayObject).length,
     0,
   );
+}
+
+function findWorkspaceObject(workspace: ProjectWorkspace, bucket: ObjectBucket, id: string): XrayObject | undefined {
+  return (workspace.objects[bucket] as XrayObject[]).find((object) => object.id === id);
 }
 
 function formatDateTime(value: string): string {

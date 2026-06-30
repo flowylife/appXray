@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { ExportType } from "../export/export-content.js";
 import { downloadTextFile, getExportContent, getExportFileName, type ExportMode } from "../export/export-content.js";
 import type { ProjectWorkspace } from "../domain/workspace.js";
-import { validateWorkspace } from "../domain/validation.js";
+import { validateWorkspace, type ValidationIssue } from "../domain/validation.js";
+import { getValidationIssueTarget, getValidationRepairActionLabel } from "../domain/validation-actions.js";
 
 const UPCOMING_EXPORTS = ["PDF", "Notion", "Linear", "Jira", "Supabase", "Figma"];
 
@@ -10,10 +11,14 @@ export function ExportPanel({
   activeExport,
   workspace,
   onExportChange,
+  onJumpToIssue,
+  onRepairIssue,
 }: {
   activeExport: ExportType;
   workspace: ProjectWorkspace;
   onExportChange: (type: ExportType) => void;
+  onJumpToIssue?: ((issue: ValidationIssue) => void) | undefined;
+  onRepairIssue?: ((issue: ValidationIssue) => void) | undefined;
 }) {
   const [exportMode, setExportMode] = useState<ExportMode>("confirmedOnly");
   const [includeValidationAppendix, setIncludeValidationAppendix] = useState(false);
@@ -45,7 +50,14 @@ export function ExportPanel({
           <div>
             <span>내보내기 전에 고칠 것 {validation.errors.length}</span>
             <ul>
-              {validation.errors.map((issue) => <li key={issue.id}>{issue.message}</li>)}
+              {validation.errors.map((issue) => (
+                <ValidationIssueRow
+                  issue={issue}
+                  key={issue.id}
+                  onJumpToIssue={onJumpToIssue}
+                  onRepairIssue={onRepairIssue}
+                />
+              ))}
             </ul>
           </div>
         ) : null}
@@ -53,7 +65,14 @@ export function ExportPanel({
           <div>
             <span>확인 필요 {validation.warnings.length}</span>
             <ul>
-              {validation.warnings.map((issue) => <li key={issue.id}>{issue.message}</li>)}
+              {validation.warnings.map((issue) => (
+                <ValidationIssueRow
+                  issue={issue}
+                  key={issue.id}
+                  onJumpToIssue={onJumpToIssue}
+                  onRepairIssue={onRepairIssue}
+                />
+              ))}
             </ul>
           </div>
         ) : null}
@@ -86,5 +105,36 @@ export function ExportPanel({
       <p className="muted export-file-name">파일명: {fileName}</p>
       <pre className="preview">{exportPreview}</pre>
     </section>
+  );
+}
+
+function ValidationIssueRow({
+  issue,
+  onJumpToIssue,
+  onRepairIssue,
+}: {
+  issue: ValidationIssue;
+  onJumpToIssue?: ((issue: ValidationIssue) => void) | undefined;
+  onRepairIssue?: ((issue: ValidationIssue) => void) | undefined;
+}) {
+  const repairLabel = getValidationRepairActionLabel(issue);
+  const target = getValidationIssueTarget(issue);
+
+  return (
+    <li>
+      <span>{issue.message}</span>
+      <div className="validation-actions">
+        {target && onJumpToIssue ? (
+          <button className="secondary" type="button" onClick={() => onJumpToIssue(issue)}>
+            검토로 이동
+          </button>
+        ) : null}
+        {repairLabel && onRepairIssue ? (
+          <button className="secondary" type="button" onClick={() => onRepairIssue(issue)}>
+            {repairLabel}
+          </button>
+        ) : null}
+      </div>
+    </li>
   );
 }

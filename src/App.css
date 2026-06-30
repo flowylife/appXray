@@ -687,6 +687,31 @@ textarea {
   color: #3f7832;
 }
 
+.change-badge.preserved_review_decision {
+  background: #eef0f4;
+  color: #536174;
+}
+
+.validation-badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  justify-content: center;
+  min-width: 5.8rem;
+  padding: 0.3rem 0.48rem;
+}
+
+.validation-badge.error {
+  background: #f8ded7;
+  color: #8f321e;
+}
+
+.validation-badge.warning {
+  background: #fff3d7;
+  color: #825d00;
+}
+
 .badge.suggested {
   background: #fff3d7;
   color: #825d00;
@@ -778,6 +803,17 @@ textarea {
 .validation-panel ul {
   margin: 0;
   padding-left: 1.15rem;
+}
+
+.validation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.validation-actions button {
+  padding: 0.42rem 0.65rem;
 }
 
 .build-plan-list {
