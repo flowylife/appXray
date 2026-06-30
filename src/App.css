@@ -392,6 +392,57 @@ textarea {
   padding: 0.5rem 0.72rem;
 }
 
+.review-filters button.active {
+  background: #096b68;
+  color: #ffffff;
+}
+
+.review-toolbar {
+  align-items: end;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: minmax(170px, 0.6fr) minmax(220px, 1fr) auto;
+  margin-bottom: 0.8rem;
+}
+
+.merge-impact-panel,
+.bucket-status-counts {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.merge-impact-panel {
+  background: #f7faf9;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  color: #40504c;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-bottom: 0.85rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.merge-impact-panel span,
+.bucket-status-counts span {
+  background: #ffffff;
+  border: 1px solid #dfe7e4;
+  border-radius: 999px;
+  color: #60706b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 0.3rem 0.5rem;
+}
+
+.review-group-heading {
+  align-items: start;
+  display: flex;
+  gap: 0.8rem;
+  justify-content: space-between;
+  margin-bottom: 0.65rem;
+}
+
 .review-group + .review-group {
   margin-top: 1.25rem;
 }
@@ -401,7 +452,7 @@ textarea {
   display: flex;
   gap: 0.45rem;
   font-size: 0.98rem;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.4rem;
 }
 
 .review-group h3 span {
@@ -848,6 +899,15 @@ textarea {
   .build-plan-step {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .review-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .review-group-heading {
+    align-items: stretch;
+    display: grid;
   }
 
   .template-preview {

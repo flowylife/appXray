@@ -7,10 +7,12 @@ import { compareSuggestionSets } from "../dist/domain/diff.js";
 import { parseAppRoute, projectRoute } from "../dist/domain/routes.js";
 import { fieldPowerAppSuggestionSet, mockFieldPowerAppAnalysis } from "../dist/fixtures/field-power-app.js";
 import {
+  applyStatusDecisionToSuggestionSet,
   updateXrayObjectStatus,
   editXrayObject,
   mergeAiSuggestionsPreservingConfirmed,
   summarizeSuggestionMergeImpact,
+  undoLatestStatusDecision,
 } from "../dist/domain/lifecycle.js";
 import {
   appendSourceDocumentVersion,
@@ -130,9 +132,11 @@ test("editing an issue updates decision fields and marks it as edited", () => {
   assert.deepEqual(edited.origin, issue.origin);
 });
 
-test("AI rerun merge does not overwrite accepted or edited structures", () => {
-  const [screen] = fieldPowerAppSuggestionSet.screens;
+test("AI rerun merge does not overwrite reviewed structures", () => {
+  const [screen, deferredScreen, rejectedScreen] = fieldPowerAppSuggestionSet.screens;
   assert.ok(screen);
+  assert.ok(deferredScreen);
+  assert.ok(rejectedScreen);
 
   const accepted = updateXrayObjectStatus(screen, "accepted", "2026-06-23T01:00:00.000Z");
   const editedIncoming = { ...screen, displayName: "AI rerun changed this", status: "suggested" };
@@ -144,6 +148,110 @@ test("AI rerun merge does not overwrite accepted or edited structures", () => {
   assert.equal(merged.screens.length, 1);
   assert.equal(merged.screens[0].status, "accepted");
   assert.equal(merged.screens[0].displayName, accepted.displayName);
+
+  const edited = editXrayObject(screen, { displayName: "사용자가 고친 대시보드" }, "2026-06-23T01:30:00.000Z");
+  const editedMerge = mergeAiSuggestionsPreservingConfirmed(
+    { ...fieldPowerAppSuggestionSet, screens: [edited] },
+    { ...fieldPowerAppSuggestionSet, screens: [editedIncoming] },
+  );
+
+  assert.equal(editedMerge.screens.length, 1);
+  assert.equal(editedMerge.screens[0].status, "edited");
+  assert.equal(editedMerge.screens[0].displayName, "사용자가 고친 대시보드");
+
+  const deferred = updateXrayObjectStatus(deferredScreen, "deferred", "2026-06-23T01:40:00.000Z");
+  const rejected = updateXrayObjectStatus(rejectedScreen, "rejected", "2026-06-23T01:45:00.000Z");
+  const auditMerge = mergeAiSuggestionsPreservingConfirmed(
+    { ...emptySuggestionSetForTest(), screens: [deferred, rejected] },
+    {
+      ...emptySuggestionSetForTest(),
+      screens: [
+        { ...deferredScreen, displayName: "AI rerun should not reset deferred", status: "suggested" },
+        { ...rejectedScreen, displayName: "AI rerun should not reset rejected", status: "suggested" },
+      ],
+    },
+  );
+
+  assert.equal(auditMerge.screens[0].status, "deferred");
+  assert.equal(auditMerge.screens[0].displayName, deferred.displayName);
+  assert.equal(auditMerge.screens[1].status, "rejected");
+  assert.equal(auditMerge.screens[1].displayName, rejected.displayName);
+});
+
+test("bulk status decisions accept only the requested bucket", () => {
+  const screenIds = fieldPowerAppSuggestionSet.screens.slice(0, 2).map((screen) => screen.id);
+  const result = applyStatusDecisionToSuggestionSet(
+    {
+      ...emptySuggestionSetForTest(),
+      screens: fieldPowerAppSuggestionSet.screens.slice(0, 2),
+      dataObjects: fieldPowerAppSuggestionSet.dataObjects.slice(0, 1),
+    },
+    "screens",
+    screenIds,
+    "accepted",
+    "2026-07-01T01:00:00.000Z",
+    "decision_accept_screens",
+  );
+
+  assert.ok(result.decisionGroup);
+  assert.equal(result.decisionGroup.decisions.length, 2);
+  assert.ok(result.objects.screens.every((screen) => screen.status === "accepted"));
+  assert.equal(result.objects.dataObjects[0].status, "suggested");
+});
+
+test("bulk status decisions reject only the requested bucket", () => {
+  const issueIds = fieldPowerAppSuggestionSet.issues.slice(0, 2).map((issue) => issue.id);
+  const result = applyStatusDecisionToSuggestionSet(
+    {
+      ...emptySuggestionSetForTest(),
+      screens: fieldPowerAppSuggestionSet.screens.slice(0, 1),
+      issues: fieldPowerAppSuggestionSet.issues.slice(0, 2),
+    },
+    "issues",
+    issueIds,
+    "rejected",
+    "2026-07-01T01:05:00.000Z",
+    "decision_reject_issues",
+  );
+
+  assert.ok(result.decisionGroup);
+  assert.equal(result.decisionGroup.decisions.length, 2);
+  assert.ok(result.objects.issues.every((issue) => issue.status === "rejected"));
+  assert.equal(result.objects.screens[0].status, "suggested");
+});
+
+test("undo restores the most recent status decision in the current session", () => {
+  const screen = fieldPowerAppSuggestionSet.screens[0];
+  const issue = fieldPowerAppSuggestionSet.issues[0];
+  assert.ok(screen);
+  assert.ok(issue);
+
+  const acceptedScreen = applyStatusDecisionToSuggestionSet(
+    { ...emptySuggestionSetForTest(), screens: [screen], issues: [issue] },
+    "screens",
+    [screen.id],
+    "accepted",
+    "2026-07-01T01:10:00.000Z",
+    "decision_accept_screen",
+  );
+  const rejectedIssue = applyStatusDecisionToSuggestionSet(
+    acceptedScreen.objects,
+    "issues",
+    [issue.id],
+    "rejected",
+    "2026-07-01T01:11:00.000Z",
+    "decision_reject_issue",
+  );
+  const history = [acceptedScreen.decisionGroup, rejectedIssue.decisionGroup].filter(Boolean);
+
+  const firstUndo = undoLatestStatusDecision(rejectedIssue.objects, history);
+  assert.equal(firstUndo.restoredCount, 1);
+  assert.equal(firstUndo.objects.issues[0].status, "suggested");
+  assert.equal(firstUndo.objects.screens[0].status, "accepted");
+
+  const secondUndo = undoLatestStatusDecision(firstUndo.objects, firstUndo.history);
+  assert.equal(secondUndo.restoredCount, 1);
+  assert.equal(secondUndo.objects.screens[0].status, "suggested");
 });
 
 test("deterministic exports and prompt use confirmed records only", () => {
@@ -861,31 +969,33 @@ test("source document factory creates the expected next version", () => {
   assert.equal(sourceDocument.content, "PRD v3");
 });
 
-test("merge impact distinguishes added refreshed and preserved confirmed suggestions", () => {
+test("merge impact distinguishes added refreshed and preserved reviewed suggestions", () => {
   const [screenA, screenB] = fieldPowerAppSuggestionSet.screens;
-  const [dataObject] = fieldPowerAppSuggestionSet.dataObjects;
+  const [dataObjectA, dataObjectB] = fieldPowerAppSuggestionSet.dataObjects;
   assert.ok(screenA);
   assert.ok(screenB);
-  assert.ok(dataObject);
+  assert.ok(dataObjectA);
+  assert.ok(dataObjectB);
 
   const existing = {
     ...emptySuggestionSetForTest(),
     screens: [updateXrayObjectStatus(screenA, "accepted"), screenB],
-    dataObjects: [],
+    dataObjects: [updateXrayObjectStatus(dataObjectB, "rejected")],
   };
   const incoming = {
     ...emptySuggestionSetForTest(),
     screens: [{ ...screenA, displayName: "AI가 바꾼 이름" }, { ...screenB, displayName: "갱신된 제안" }],
-    dataObjects: [dataObject],
+    dataObjects: [dataObjectA, { ...dataObjectB, displayName: "AI가 다시 제안한 제외 항목" }],
   };
 
   const impact = summarizeSuggestionMergeImpact(existing, incoming);
   assert.equal(impact.preservedConfirmedCount, 1);
+  assert.equal(impact.preservedReviewDecisionCount, 1);
   assert.equal(impact.refreshedSuggestedCount, 1);
   assert.equal(impact.addedSuggestedCount, 1);
   assert.deepEqual(
     impact.changes.map((change) => change.changeType).sort(),
-    ["added_suggestion", "preserved_confirmed", "refreshed_suggestion"],
+    ["added_suggestion", "preserved_confirmed", "preserved_review_decision", "refreshed_suggestion"],
   );
 });
 

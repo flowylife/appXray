@@ -23,6 +23,82 @@ export function editXrayObject<T extends BaseXrayObject>(
   };
 }
 
+export type ReviewStatusDecision = {
+  bucket: XraySuggestionBucket;
+  objectId: string;
+  previousObject: XrayObject;
+  nextStatus: SuggestionStatus;
+};
+
+export type ReviewStatusDecisionGroup = {
+  id: string;
+  decidedAt: string;
+  decisions: ReviewStatusDecision[];
+};
+
+export function applyStatusDecisionToSuggestionSet(
+  existing: XraySuggestionSet,
+  bucket: XraySuggestionBucket,
+  objectIds: string[],
+  nextStatus: SuggestionStatus,
+  now = new Date().toISOString(),
+  decisionId = `decision_${now}`,
+): { objects: XraySuggestionSet; decisionGroup: ReviewStatusDecisionGroup | null } {
+  const targetIds = new Set(objectIds);
+  const decisions: ReviewStatusDecision[] = [];
+  const collection = existing[bucket] as XrayObject[];
+  const nextCollection = collection.map((object) => {
+    if (!targetIds.has(object.id) || object.status === nextStatus) return object;
+    decisions.push({
+      bucket,
+      objectId: object.id,
+      previousObject: object,
+      nextStatus,
+    });
+    return updateXrayObjectStatus(object, nextStatus, now);
+  });
+
+  return {
+    objects: {
+      ...existing,
+      [bucket]: nextCollection,
+    },
+    decisionGroup: decisions.length
+      ? {
+        id: decisionId,
+        decidedAt: now,
+        decisions,
+      }
+      : null,
+  };
+}
+
+export function undoLatestStatusDecision(
+  existing: XraySuggestionSet,
+  history: ReviewStatusDecisionGroup[],
+): { objects: XraySuggestionSet; history: ReviewStatusDecisionGroup[]; restoredCount: number } {
+  const latest = history.at(-1);
+  if (!latest) {
+    return { objects: existing, history, restoredCount: 0 };
+  }
+
+  const restored = latest.decisions.reduce<XraySuggestionSet>((objects, decision) => {
+    const collection = objects[decision.bucket] as XrayObject[];
+    return {
+      ...objects,
+      [decision.bucket]: collection.map((object) =>
+        object.id === decision.objectId ? decision.previousObject : object,
+      ),
+    };
+  }, existing);
+
+  return {
+    objects: restored,
+    history: history.slice(0, -1),
+    restoredCount: latest.decisions.length,
+  };
+}
+
 export function mergeAiSuggestionsPreservingConfirmed(
   existing: XraySuggestionSet,
   incoming: XraySuggestionSet,
@@ -47,6 +123,7 @@ export type SuggestionMergeImpact = {
   addedSuggestedCount: number;
   refreshedSuggestedCount: number;
   preservedConfirmedCount: number;
+  preservedReviewDecisionCount: number;
   changes: AnalysisChange[];
 };
 
@@ -74,6 +151,7 @@ export function summarizeSuggestionMergeImpact(
       addedSuggestedCount: total.addedSuggestedCount + impact.addedSuggestedCount,
       refreshedSuggestedCount: total.refreshedSuggestedCount + impact.refreshedSuggestedCount,
       preservedConfirmedCount: total.preservedConfirmedCount + impact.preservedConfirmedCount,
+      preservedReviewDecisionCount: total.preservedReviewDecisionCount + impact.preservedReviewDecisionCount,
       changes: [...total.changes, ...impact.changes],
     }),
     {
@@ -81,6 +159,7 @@ export function summarizeSuggestionMergeImpact(
       addedSuggestedCount: 0,
       refreshedSuggestedCount: 0,
       preservedConfirmedCount: 0,
+      preservedReviewDecisionCount: 0,
       changes: [],
     },
   );
@@ -96,7 +175,7 @@ function mergeCollection<T extends XrayObject>(existing: T[], incoming: T[]): T[
   for (const object of incoming) {
     const key = mergeKey(object);
     const current = result.get(key);
-    if (current && isConfirmedXrayObject(current)) continue;
+    if (current && isUserReviewedXrayObject(current)) continue;
     result.set(key, object);
   }
 
@@ -143,6 +222,21 @@ function summarizeCollection<T extends XrayObject>(
           ],
         };
       }
+      if (isUserReviewedXrayObject(current)) {
+        return {
+          ...impact,
+          incomingSuggestedCount: impact.incomingSuggestedCount + 1,
+          preservedReviewDecisionCount: impact.preservedReviewDecisionCount + 1,
+          changes: [
+            ...impact.changes,
+            {
+              bucket,
+              objectId: current.id,
+              changeType: "preserved_review_decision",
+            },
+          ],
+        };
+      }
       return {
         ...impact,
         incomingSuggestedCount: impact.incomingSuggestedCount + 1,
@@ -162,6 +256,7 @@ function summarizeCollection<T extends XrayObject>(
       addedSuggestedCount: 0,
       refreshedSuggestedCount: 0,
       preservedConfirmedCount: 0,
+      preservedReviewDecisionCount: 0,
       changes: [],
     },
   );
@@ -169,4 +264,8 @@ function summarizeCollection<T extends XrayObject>(
 
 function mergeKey(object: XrayObject): string {
   return object.origin?.tempId ?? object.id;
+}
+
+function isUserReviewedXrayObject(object: XrayObject): boolean {
+  return object.status !== "suggested";
 }

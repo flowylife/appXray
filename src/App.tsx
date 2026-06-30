@@ -7,10 +7,12 @@ import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./compo
 import { convertAiAnalysisToXrayObjects } from "./domain/convert.js";
 import { compareSuggestionSets } from "./domain/diff.js";
 import {
+  applyStatusDecisionToSuggestionSet,
   editXrayObject,
   mergeAiSuggestionsPreservingConfirmed,
+  type ReviewStatusDecisionGroup,
   summarizeSuggestionMergeImpact,
-  updateXrayObjectStatus,
+  undoLatestStatusDecision,
 } from "./domain/lifecycle.js";
 import { parseAppRoute, projectOrListRoute, projectRoute, type ProjectRouteSection } from "./domain/routes.js";
 import { classifySourceFile } from "./domain/source-import.js";
@@ -52,6 +54,7 @@ export default function App() {
   const [aiSettingsMessage, setAiSettingsMessage] = useState<string | null>(null);
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
+  const [statusHistory, setStatusHistory] = useState<ReviewStatusDecisionGroup[]>([]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -92,6 +95,10 @@ export default function App() {
     const sectionId = sectionIdForRoute(route.section);
     window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ block: "start" }));
   }, [route, workspace?.project.id]);
+
+  useEffect(() => {
+    setStatusHistory([]);
+  }, [workspace?.project.id]);
 
   const confirmedCounts = workspace ? countConfirmed(workspace.objects) : 0;
   const totalCounts = workspace ? countAll(workspace.objects) : 0;
@@ -232,11 +239,52 @@ export default function App() {
   }
 
   function updateObjectStatus(bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) {
-    replaceObject(bucket, object.id, updateXrayObjectStatus(object, status));
+    updateObjectsStatus(bucket, [object], status);
+  }
+
+  function updateObjectsStatus(bucket: ObjectBucket, objectsToUpdate: XrayObject[], status: SuggestionStatus) {
+    const now = new Date().toISOString();
+    setWorkspace((current) => {
+      if (!current || objectsToUpdate.length === 0) return current;
+      const result = applyStatusDecisionToSuggestionSet(
+        current.objects,
+        bucket,
+        objectsToUpdate.map((object) => object.id),
+        status,
+        now,
+      );
+      if (!result.decisionGroup) return current;
+      const decisionGroup = result.decisionGroup;
+      setStatusHistory((history) => [...history, decisionGroup].slice(-25));
+      return {
+        ...current,
+        objects: result.objects,
+        updatedAt: now,
+      };
+    });
   }
 
   function editObject(bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) {
-    replaceObject(bucket, object.id, editXrayObject(object, patch as never));
+    const now = new Date().toISOString();
+    const nextObject = editXrayObject(object, patch as never, now);
+    replaceObjectWithDecision(
+      bucket,
+      object.id,
+      nextObject,
+      {
+        id: `decision_${now}`,
+        decidedAt: now,
+        decisions: [
+          {
+            bucket,
+            objectId: object.id,
+            previousObject: object,
+            nextStatus: "edited",
+          },
+        ],
+      },
+      now,
+    );
   }
 
   function toggleIssuePrompt(issue: EditableXrayObject) {
@@ -249,16 +297,44 @@ export default function App() {
   }
 
   function replaceObject(bucket: ObjectBucket, id: string, nextObject: XrayObject) {
+    replaceObjectWithDecision(bucket, id, nextObject);
+  }
+
+  function replaceObjectWithDecision(
+    bucket: ObjectBucket,
+    id: string,
+    nextObject: XrayObject,
+    decisionGroup?: ReviewStatusDecisionGroup,
+    now = new Date().toISOString(),
+  ) {
     setWorkspace((current) => {
       if (!current) return current;
       const collection = current.objects[bucket] as XrayObject[];
+      if (decisionGroup) {
+        setStatusHistory((history) => [...history, decisionGroup].slice(-25));
+      }
       return {
         ...current,
         objects: {
           ...current.objects,
           [bucket]: collection.map((object) => (object.id === id ? nextObject : object)),
         },
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
+      };
+    });
+  }
+
+  function undoStatusDecision() {
+    const now = new Date().toISOString();
+    setWorkspace((current) => {
+      if (!current) return current;
+      const result = undoLatestStatusDecision(current.objects, statusHistory);
+      if (result.restoredCount === 0) return current;
+      setStatusHistory(result.history);
+      return {
+        ...current,
+        objects: result.objects,
+        updatedAt: now,
       };
     });
   }
@@ -566,6 +642,7 @@ export default function App() {
                 <span>새 제안 {workspace.lastAnalysis.addedSuggestedCount}</span>
                 <span>갱신 제안 {workspace.lastAnalysis.refreshedSuggestedCount}</span>
                 <span>보존 확정 {workspace.lastAnalysis.preservedConfirmedCount}</span>
+                <span>보존 판정 {workspace.lastAnalysis.preservedReviewDecisionCount ?? 0}</span>
               </>
             ) : null}
           </div>
@@ -586,7 +663,12 @@ export default function App() {
           <>
             <ReviewPanel
               analysisChanges={workspace.lastAnalysis?.changes}
+              analysisSummary={workspace.lastAnalysis}
+              canUndoStatus={statusHistory.length > 0}
               objects={workspace.objects}
+              structureDiff={workspace.lastStructureDiff}
+              onBulkStatus={updateObjectsStatus}
+              onUndoStatus={undoStatusDecision}
               onStatus={updateObjectStatus}
               onEdit={editObject}
             />
