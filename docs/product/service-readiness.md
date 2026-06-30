@@ -28,9 +28,9 @@ App X-Ray는 사용자가 다음 작업을 반복할 수 있을 때 service-read
 ### Source Input Workflow
 
 - 사용자가 PRD, 아이디어, 업무 메모를 직접 붙여넣습니다.
-- `.md`, `.markdown`, `.txt` 파일을 source document로 가져옵니다.
+- `.md`, `.markdown`, `.txt`, `.csv`, `.json` 파일을 source document로 가져옵니다.
 - source document는 versioned local workspace data로 남습니다.
-- PDF, CSV, JSON import는 현재 release surface가 아니라 이후 source ingestion task 범위입니다.
+- PDF import는 현재 release surface가 아니라 이후 parser dependency 승인 task 범위입니다.
 
 ### Review Workflow
 
@@ -49,9 +49,11 @@ App X-Ray는 사용자가 다음 작업을 반복할 수 있을 때 service-read
 ### AI Settings Workflow
 
 - 현재 mock adapter는 deterministic 분석에 사용됩니다.
+- OpenAI, Anthropic, Google Gemini, OpenRouter는 사용자가 직접 API key를 넣는 BYOK 방식으로 선택할 수 있습니다.
 - provider 설정과 API key 입력은 browser-local settings에 저장됩니다.
 - API key 원문은 public config, export, prompt, workspace backup에 포함하지 않습니다.
-- 실제 provider adapter는 local-first BYOK 경계를 유지하는 별도 task에서 확장합니다.
+- provider를 바꾸면 이전 provider의 API key를 새 provider에 재사용하지 않습니다.
+- provider 응답은 App X-Ray 분석 계약 검증을 통과해야 workspace에 반영됩니다.
 
 ## Non-Goals
 
@@ -82,8 +84,9 @@ App X-Ray는 사용자가 다음 작업을 반복할 수 있을 때 service-read
 - [ ] `npm run typecheck`가 통과합니다.
 - [ ] `npm test`가 통과합니다.
 - [ ] `npm run build`가 통과합니다.
+- [ ] `npm run test:e2e`가 통과합니다.
 - [ ] browser manual QA에서 create/import/review/export/backup/reload workflow를 확인합니다.
 
 ## Current Readiness Notes
 
-이 문서는 service-ready 목표와 현재 release surface를 함께 설명합니다. 현재 구현의 기본 분석 경로는 mock adapter이며, 실제 BYOK provider 호출은 roadmap의 별도 task에서 adapter 뒤에 추가해야 합니다. 이 확장은 browser-local API key 원칙과 no hidden backend 원칙을 유지해야 합니다.
+이 문서는 service-ready 목표와 현재 release surface를 함께 설명합니다. 현재 구현의 기본 분석 경로는 mock adapter이며, 실제 BYOK provider 호출은 browser-local API key 원칙과 no hidden backend 원칙 안에서 adapter 뒤에 연결되어 있습니다. 브라우저 CORS 또는 OS keychain 요구가 반복 blocker가 되면 desktop packaging decision을 재검토합니다.

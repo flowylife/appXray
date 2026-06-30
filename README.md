@@ -20,7 +20,7 @@ App X-Ray는 local-first 제품입니다.
 - AI API key는 브라우저 로컬 설정에만 저장되며 export, prompt, workspace backup에 포함되면 안 됩니다.
 - Codex, Cursor, Lovable, Replit, Bolt를 대체하지 않고 그 전에 구조를 정리합니다.
 
-자세한 서비스 기준은 [docs/product/service-readiness.md](docs/product/service-readiness.md)를 보세요. 저장소와 export 계약은 [docs/product/local-first-data-contract.md](docs/product/local-first-data-contract.md)를 보세요.
+자세한 서비스 기준은 [docs/product/service-readiness.md](docs/product/service-readiness.md)를 보세요. 저장소와 export 계약은 [docs/product/local-first-data-contract.md](docs/product/local-first-data-contract.md)를 보세요. 브라우저-only와 desktop packaging 판단은 [docs/product/desktop-packaging-decision.md](docs/product/desktop-packaging-decision.md)에 기록되어 있습니다.
 
 ## Supported Imports
 
@@ -32,8 +32,18 @@ App X-Ray는 local-first 제품입니다.
 | `.md` | 지원 | Markdown 원문으로 가져옵니다. |
 | `.markdown` | 지원 | Markdown 원문으로 가져옵니다. |
 | `.txt` | 지원 | 일반 텍스트 원문으로 가져옵니다. |
+| `.csv` | 지원 | header를 감지해 구조화된 source text로 가져옵니다. |
+| `.json` | 지원 | 유효한 JSON을 pretty-printed source text로 가져옵니다. |
 | `.pdf` | 미지원 | PDF parsing은 별도 task에서 dependency 승인 후 다룹니다. |
-| `.csv`, `.json` | 미지원 | service-readiness roadmap의 이후 source ingestion task 범위입니다. |
+
+## AI Providers
+
+Mock 분석은 offline deterministic fixture로 동작합니다. BYOK 설정에서는 OpenAI, Anthropic, Google Gemini, OpenRouter를 선택할 수 있습니다.
+
+- API key는 브라우저 로컬 설정에만 저장됩니다.
+- provider를 바꾸면 이전 provider의 key는 재사용하지 않도록 비웁니다.
+- provider 응답은 App X-Ray 분석 계약 검증을 통과해야 workspace에 반영됩니다.
+- 브라우저 BYOK 호출은 provider CORS 정책에 막힐 수 있습니다. 이 경우 mock mode나 future desktop bridge가 안전한 fallback입니다.
 
 ## Supported Exports
 
@@ -68,6 +78,7 @@ npm run dev
 npm run typecheck
 npm test
 npm run build
+npm run test:e2e
 ```
 
 개발 중 생성되는 주요 출력:
