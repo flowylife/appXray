@@ -156,20 +156,21 @@ Acceptance criteria:
 - Modify: `src/App.css`
 - Test: `test/domain.test.mjs`
 - Create: `test/ai-provider.test.mjs`
+- Test: `test/ui-project-lifecycle.test.mjs`
 
-- [ ] Refactor `AiProviderAdapter.analyze` to return `Promise<AiAnalysisResult>`.
-- [ ] Add tests proving mock adapter remains deterministic after async conversion.
-- [ ] Add `structured-prompt.ts` that builds a provider-neutral extraction prompt from the latest source document and the `AI_ANALYSIS_SCHEMA.md` contract.
-- [ ] Add tests proving the prompt includes excluded scopes and asks for structured JSON only.
-- [ ] Add `provider-registry.ts` with `mock`, `openai`, `anthropic`, `gemini`, and `openrouter` provider metadata.
-- [ ] Add `http-provider.ts` with provider-specific request/response normalization for BYOK browser calls.
-- [ ] Add tests with mocked `fetch` for success, invalid JSON, provider error, missing API key, and timeout.
-- [ ] Update `App.tsx` so analysis has visible idle, running, success, validation-failed, and provider-error states.
-- [ ] Keep API keys in local browser storage only. Never include the raw key in logs, exports, prompts, backups, or public config.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Commit with `feat: add BYOK AI provider adapters`.
+- [x] Refactor `AiProviderAdapter.analyze` to return `Promise<AiAnalysisResult>`.
+- [x] Add tests proving mock adapter remains deterministic after async conversion.
+- [x] Add `structured-prompt.ts` that builds a provider-neutral extraction prompt from the latest source document and the `AI_ANALYSIS_SCHEMA.md` contract.
+- [x] Add tests proving the prompt includes excluded scopes and asks for structured JSON only.
+- [x] Add `provider-registry.ts` with `mock`, `openai`, `anthropic`, `gemini`, and `openrouter` provider metadata.
+- [x] Add `http-provider.ts` with provider-specific request/response normalization for BYOK browser calls.
+- [x] Add tests with mocked `fetch` for success, invalid JSON, provider error, missing API key, and timeout.
+- [x] Update `App.tsx` so analysis has visible idle, running, success, validation-failed, and provider-error states.
+- [x] Keep API keys in local browser storage only. Never include the raw key in logs, exports, prompts, backups, or public config.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Commit with `feat: add BYOK AI provider adapters`.
 
 Acceptance criteria:
 
