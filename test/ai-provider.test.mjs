@@ -5,7 +5,7 @@ import { analyzeWithHttpProvider } from "../dist/ai/http-provider.js";
 import { AI_PROVIDER_REGISTRY, getAiProviderMetadata } from "../dist/ai/provider-registry.js";
 import { APP_XRAY_ANALYSIS_JSON_INSTRUCTIONS, buildStructuredAnalysisPrompt } from "../dist/ai/structured-prompt.js";
 
-const SECRET_API_KEY = "sk-test-secret-key-1234567890";
+const SECRET_API_KEY = "test-api-key-redacted-1234567890";
 
 const sourceDocument = {
   id: "src_test",
