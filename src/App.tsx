@@ -1,19 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { mockAiProviderAdapter, validateAiAnalysisResult } from "./ai/adapter.js";
-import { analyzeWithHttpProvider } from "./ai/http-provider.js";
+import { mockAiProviderAdapter } from "./ai/adapter.js";
+import { runWorkspaceAnalysis } from "./app/run-analysis.js";
 import { AI_PROVIDER_REGISTRY, getAiProviderMetadata } from "./ai/provider-registry.js";
 import { DEFAULT_AI_PROVIDER_CONFIG, loadAiProviderConfig, saveAiProviderConfig, type AiProviderConfig, type AiProviderName } from "./ai/settings.js";
 import { ExportPanel } from "./components/ExportPanel.js";
 import { MapPanels, MissingParts } from "./components/MapPanels.js";
 import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./components/ReviewPanel.js";
-import { convertAiAnalysisToXrayObjects } from "./domain/convert.js";
-import { compareSuggestionSets } from "./domain/diff.js";
 import {
   applyStatusDecisionToSuggestionSet,
   editXrayObject,
-  mergeAiSuggestionsPreservingConfirmed,
   type ReviewStatusDecisionGroup,
-  summarizeSuggestionMergeImpact,
   undoLatestStatusDecision,
 } from "./domain/lifecycle.js";
 import { parseAppRoute, projectOrListRoute, projectRoute, type ProjectRouteSection } from "./domain/routes.js";
@@ -242,70 +238,20 @@ export default function App() {
     const sourceDocument = getLatestSourceDocument(versionedWorkspace);
     if (!sourceDocument) return;
     setAnalysisRunState({ status: "running", provider: aiConfig.provider });
-    let analysis: Awaited<ReturnType<typeof mockAiProviderAdapter.analyze>>;
-    try {
-      if (aiConfig.provider === "mock") {
-        analysis = await mockAiProviderAdapter.analyze({ sourceDocument });
-      } else {
-        const providerResult = await analyzeWithHttpProvider(aiConfig, { sourceDocument });
-        if (!providerResult.ok) {
-          setAnalysisRunState({
-            status: "provider-error",
-            message: providerResult.error,
-          });
-          return;
-        }
-        analysis = providerResult.result;
-      }
-    } catch (error) {
-      setAnalysisRunState({
-        status: "provider-error",
-        message: error instanceof Error ? error.message : "AI 분석 요청에 실패했습니다.",
-      });
-      return;
-    }
-    const validation = validateAiAnalysisResult(analysis);
-    if (!validation.ok) {
-      setAnalysisRunState({
-        status: "validation-failed",
-        message: `AI 분석 결과 검증 실패: ${validation.errors.join(" / ")}`,
-      });
-      return;
-    }
-
-    const converted = convertAiAnalysisToXrayObjects({
-      project: versionedWorkspace.project,
+    const result = await runWorkspaceAnalysis({
+      aiConfig,
+      workspace: versionedWorkspace,
       sourceDocument,
-      analysis: validation.result,
       now,
     });
-    const mergeImpact = summarizeSuggestionMergeImpact(versionedWorkspace.objects, converted);
-    const mergedObjects = mergeAiSuggestionsPreservingConfirmed(versionedWorkspace.objects, converted);
-    const structureDiff = compareSuggestionSets(versionedWorkspace.objects, mergedObjects);
-    const lastAnalysis = {
-      runId: `analysis_${crypto.randomUUID()}`,
-      sourceDocumentId: sourceDocument.id,
-      sourceVersion: sourceDocument.version,
-      analyzedAt: now,
-      ...mergeImpact,
-    };
+    if (!result.ok) {
+      setAnalysisRunState({ status: result.status, message: result.message });
+      return;
+    }
 
-    const nextWorkspace = {
-      ...versionedWorkspace,
-      project: {
-        ...versionedWorkspace.project,
-        appTypes: validation.result.summary.appTypes,
-        updatedAt: now,
-      },
-      objects: mergedObjects,
-      buildPlanSuggestions: converted.buildPlanSuggestions,
-      lastAnalysis,
-      analysisHistory: [lastAnalysis, ...(versionedWorkspace.analysisHistory ?? [])].slice(0, 10),
-      lastStructureDiff: structureDiff,
-      updatedAt: now,
-    };
+    const nextWorkspace = result.workspace;
     if (commitWorkspace(nextWorkspace, "Mock 분석 완료")) {
-      setAnalysisRunState({ status: "success", message: "AI 분석 결과를 suggested 구조로 반영했습니다." });
+      setAnalysisRunState({ status: "success", message: result.message });
       navigateTo(projectRoute(nextWorkspace.project.id, "review"));
     }
   }
