@@ -2,77 +2,114 @@
 
 > See your app before AI builds it.
 
-App X-Ray는 비개발자 vibe coder가 앱 아이디어, PRD, 업무 메모를 AI 코딩 도구에 넘기기 전에 구조화된 앱 지도로 정리하도록 돕는 local-first 오픈소스 도구입니다.
+App X-Ray is a local-first, open-source planning tool for people who want to turn app ideas, PRDs, and working notes into a reviewable app structure before sending anything to an AI coding tool.
 
-App X-Ray는 코드를 직접 생성하거나 대상 저장소를 수정하지 않습니다. 사용자가 확인한 구조를 바탕으로 App Map, Data Map, 빠진 것, flow 기반 빌드 프롬프트, Markdown/Mermaid/JSON export를 만듭니다.
+It does not generate code or modify your target repository. Instead, it helps you review the product shape first: screens, data objects, permissions, missing decisions, user flows, build prompts, and exports for tools such as Codex, Cursor, Lovable, Replit, and Bolt.
 
-## Why This Exists
+## Why It Exists
 
-도메인 지식이 충분해도 화면, 데이터, 권한, 사용 흐름을 소프트웨어 구조로 바꾸는 일은 어렵습니다. App X-Ray는 AI가 만들기 전에 사용자가 무엇을 만들려는지 먼저 볼 수 있게 해, 불명확한 프롬프트가 불명확한 앱으로 이어지는 문제를 줄입니다.
+AI coding works best when the app structure is clear. Many users know their domain well but still struggle to translate that knowledge into screens, data models, permissions, and workflows.
+
+App X-Ray gives you a structured map of the app before implementation begins, so vague prompts do not turn into vague software.
+
+## Core Principle
+
+```text
+AI suggests.
+The user confirms.
+The system preserves.
+```
+
+AI output starts as a draft. Only user-confirmed `accepted` and `edited` structure is included in the default export.
+
+## What App X-Ray Does
+
+- Converts ideas, PRDs, notes, Markdown, TXT, CSV, and JSON into a structured app map.
+- Shows reviewable AI suggestions for screens, features, data objects, fields, relations, roles, permissions, flows, and missing decisions.
+- Lets users accept, edit, reject, defer, bulk review, and undo review decisions.
+- Preserves confirmed user decisions across AI re-analysis and recovery flows.
+- Validates export readiness and points users to affected review rows.
+- Exports Markdown, Mermaid diagrams, JSON, CSV, Codex/Cursor prompts, GitHub issue drafts, and bundle JSON.
+- Stores projects locally in the browser and supports workspace backup and restore.
+- Supports deterministic mock analysis and BYOK provider settings for OpenAI, Anthropic, Google Gemini, and OpenRouter.
 
 ## Product Boundary
 
-App X-Ray는 local-first 제품입니다.
+App X-Ray is intentionally local-first.
 
-- 프로젝트 데이터는 브라우저 `localStorage`와 사용자가 내려받는 workspace backup에 저장됩니다.
-- 숨겨진 SaaS backend, hosted workspace, login, billing, marketplace, token resale은 없습니다.
-- AI output은 초안입니다. 사용자가 `accepted` 또는 `edited`로 확인한 구조만 기본 export에 포함됩니다.
-- AI API key는 브라우저 로컬 설정에만 저장되며 export, prompt, workspace backup에 포함되면 안 됩니다.
-- Codex, Cursor, Lovable, Replit, Bolt를 대체하지 않고 그 전에 구조를 정리합니다.
+- Project data is stored in browser `localStorage` and user-downloaded workspace backups.
+- There is no hidden SaaS backend, hosted workspace, login, billing, marketplace, or token resale.
+- AI API keys are stored only in browser-local settings.
+- API keys must not appear in exports, prompts, backups, fixtures, logs, or tests.
+- Browser BYOK calls may be blocked by provider CORS policy. Mock mode remains the safe offline fallback.
+- App X-Ray is a planning and review tool. It does not replace AI coding tools; it prepares better input for them.
 
-자세한 서비스 기준은 [docs/product/service-readiness.md](docs/product/service-readiness.md)를 보세요. 저장소와 export 계약은 [docs/product/local-first-data-contract.md](docs/product/local-first-data-contract.md)를 보세요. 브라우저-only와 desktop packaging 판단은 [docs/product/desktop-packaging-decision.md](docs/product/desktop-packaging-decision.md)에 기록되어 있습니다.
+See also:
+
+- [Service readiness](docs/product/service-readiness.md)
+- [Local-first data contract](docs/product/local-first-data-contract.md)
+- [Desktop packaging decision](docs/product/desktop-packaging-decision.md)
+- [Manual QA checklist](docs/product/manual-qa-checklist.md)
 
 ## Supported Imports
 
-현재 지원하는 입력은 다음과 같습니다.
-
-| 입력 | 지원 상태 | 설명 |
+| Input | Status | Notes |
 |---|---:|---|
-| 직접 붙여넣은 텍스트 | 지원 | PRD, 아이디어, 업무 메모를 source text로 저장합니다. |
-| `.md` | 지원 | Markdown 원문으로 가져옵니다. |
-| `.markdown` | 지원 | Markdown 원문으로 가져옵니다. |
-| `.txt` | 지원 | 일반 텍스트 원문으로 가져옵니다. |
-| `.csv` | 지원 | header를 감지해 구조화된 source text로 가져옵니다. |
-| `.json` | 지원 | 유효한 JSON을 pretty-printed source text로 가져옵니다. |
-| `.pdf` | 미지원 | PDF parsing은 별도 task에서 dependency 승인 후 다룹니다. |
-
-## AI Providers
-
-Mock 분석은 offline deterministic fixture로 동작합니다. BYOK 설정에서는 OpenAI, Anthropic, Google Gemini, OpenRouter를 선택할 수 있습니다.
-
-- API key는 브라우저 로컬 설정에만 저장됩니다.
-- provider를 바꾸면 이전 provider의 key는 재사용하지 않도록 비웁니다.
-- provider 응답은 App X-Ray 분석 계약 검증을 통과해야 workspace에 반영됩니다.
-- 브라우저 BYOK 호출은 provider CORS 정책에 막힐 수 있습니다. 이 경우 mock mode나 future desktop bridge가 안전한 fallback입니다.
+| Pasted text | Supported | PRDs, app ideas, and work notes are stored as source text. |
+| `.md` | Supported | Imported as Markdown source text. |
+| `.markdown` | Supported | Imported as Markdown source text. |
+| `.txt` | Supported | Imported as plain text. |
+| `.csv` | Supported | Headers are detected and converted into structured source text. |
+| `.json` | Supported | Valid JSON is pretty-printed into source text. |
+| `.pdf` | Not supported | PDF parsing is intentionally deferred until a parser dependency is approved. |
 
 ## Supported Exports
 
-기본 export는 `accepted`와 `edited` 상태의 confirmed data만 사용합니다. `suggested`, `rejected`, `deferred`는 audit trail 모드에서만 포함할 수 있습니다.
+Default exports use confirmed data only: `accepted` and `edited`. `suggested`, `rejected`, and `deferred` records are included only in explicit audit trail mode.
 
-| Export | 파일 예시 | 용도 |
+| Export | Example file | Purpose |
 |---|---|---|
-| Markdown | `app-xray-project.md` | 사람이 읽는 앱 구조 문서 |
-| App Map Mermaid | `app-xray-project-app-map.mmd` | 화면 관계 다이어그램 |
-| Data Map Mermaid | `app-xray-project-data-map.mmd` | 데이터 관계 다이어그램 |
-| JSON | `app-xray-project.json` | confirmed structured data |
-| Codex Prompt | `app-xray-project-codex.md` | Codex에 전달할 빌드 프롬프트 |
-| Cursor Prompt | `app-xray-project-cursor.md` | Cursor에 전달할 빌드 프롬프트 |
-| GitHub Issues Markdown | `app-xray-project-github-issues.md` | 구현 issue 초안 |
-| Bundle JSON | `app-xray-project-bundle.json` | 위 export들을 하나로 묶은 bundle |
-| Workspace Backup | `app-xray-workspace-project.json` | local workspace 이동/복구용 backup |
+| Markdown | `app-xray-project.md` | Human-readable app structure |
+| App Map Mermaid | `app-xray-project-app-map.mmd` | Screen relationship diagram |
+| Data Map Mermaid | `app-xray-project-data-map.mmd` | Data relationship diagram |
+| JSON | `app-xray-project.json` | Confirmed structured data |
+| Data Objects CSV | `app-xray-project-data-objects.csv` | Spreadsheet-friendly confirmed data objects |
+| Issues CSV | `app-xray-project-issues.csv` | Spreadsheet-friendly confirmed missing decisions |
+| Codex Prompt | `app-xray-project-codex.md` | Build prompt for Codex |
+| Cursor Prompt | `app-xray-project-cursor.md` | Build prompt for Cursor |
+| GitHub Issues Markdown | `app-xray-project-github-issues.md` | Draft implementation issues |
+| Bundle JSON | `app-xray-project-bundle.json` | A single bundle containing export artifacts |
+| Workspace Backup | `app-xray-workspace-project.json` | Local workspace transfer and recovery |
+
+## Core Workflow
+
+```text
+Idea / PRD / notes
+-> App X-Ray analysis
+-> Review suggested structure
+-> Accept / edit / reject / defer
+-> Check App Map, Data Map, and Missing Parts
+-> Export confirmed structure and build prompts
+-> Send the result to Codex, Cursor, Lovable, Replit, or Bolt
+```
 
 ## Development
 
-**Prerequisites**: Node.js 20+ 권장, npm
+### Prerequisites
+
+- Node.js 20+
+- npm
+
+### Install and Run
 
 ```bash
 npm install
 npm run dev
 ```
 
-기본 dev server는 `127.0.0.1`에서 실행됩니다.
+The Vite dev server binds to `127.0.0.1` by default.
 
-품질 확인:
+### Quality Checks
 
 ```bash
 npm run typecheck
@@ -81,31 +118,47 @@ npm run build
 npm run test:e2e
 ```
 
-개발 중 생성되는 주요 출력:
+Generated outputs:
 
 - `dist/`: TypeScript compile output
 - `app-dist/`: Vite production build output
+- `test-results/`: Playwright test output
+- `playwright-report/`: Playwright HTML report
 
-## Core Workflow
-
-```text
-Idea / PRD / Notes
-→ App X-Ray analysis
-→ 사용자가 suggested 구조를 검토
-→ accepted / edited 구조 확정
-→ App Map / Data Map / Missing Parts 확인
-→ Markdown / Mermaid / JSON / Prompt export
-→ Codex / Cursor / Lovable / Replit / Bolt
-```
-
-## Product Rules
-
-App X-Ray의 핵심 원칙은 다음과 같습니다.
+## Repository Structure
 
 ```text
-AI suggests.
-The user confirms.
-The system preserves.
+src/
+  ai/            AI adapter, BYOK provider, and structured prompt logic
+  app/           App-level workflows extracted from the React shell
+  components/    Review, map, and export UI
+  domain/        Core App X-Ray data model, lifecycle, validation, routing
+  export/        Markdown, Mermaid, JSON, CSV, prompt, and bundle exports
+  storage/       Local project repository, backups, autosave snapshots
+test/
+  e2e/           Playwright browser flows
+  *.test.mjs     Node test runner coverage for domain, UI, storage, AI, export
+docs/product/    Product boundary, service readiness, QA, and packaging notes
+app-xray-codex-rules/
+  Product and engineering rules used while building App X-Ray
 ```
 
-제품 규칙과 Codex 작업 지침은 [app-xray-codex-rules](app-xray-codex-rules/)에 있습니다.
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+Short version:
+
+- Keep changes local-first.
+- Preserve confirmed user decisions.
+- Keep API keys out of exports, prompts, backups, fixtures, logs, and tests.
+- Keep default exports confirmed-only.
+- Run the relevant checks and report anything that was not run.
+
+## Security
+
+Do not open public issues for suspected vulnerabilities. See [SECURITY.md](SECURITY.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
