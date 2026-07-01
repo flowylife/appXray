@@ -93,6 +93,7 @@ button.danger {
   top: 0;
   height: 100vh;
   min-width: 0;
+  overflow-y: auto;
 }
 
 .brand {
@@ -123,6 +124,17 @@ button.danger {
   font-size: 0.76rem;
   line-height: 1.35;
   margin-top: 0.12rem;
+}
+
+.language-selector {
+  background: #f7faf9;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.language-selector select {
+  padding: 0.58rem 0.65rem;
 }
 
 nav {

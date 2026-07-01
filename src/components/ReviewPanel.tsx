@@ -16,6 +16,14 @@ import type {
 import type { AnalysisChange, WorkspaceAnalysisSummary } from "../domain/workspace.js";
 import type { ValidationIssue } from "../domain/validation.js";
 import { getValidationIssueTarget, getValidationTargetElementId } from "../domain/validation-actions.js";
+import {
+  getBucketLabel,
+  getEditFieldLabel,
+  getStatusLabel,
+  searchLocale,
+  type AppLanguage,
+  type Translator,
+} from "../i18n.js";
 
 export const STATUS_LABELS: Record<SuggestionStatus, string> = {
   suggested: "검토 대기",
@@ -154,6 +162,8 @@ export function ReviewPanel({
   validationIssues = [],
   focusedValidationIssue,
   canUndoStatus,
+  language,
+  t,
   onStatus,
   onBulkStatus,
   onEdit,
@@ -166,6 +176,8 @@ export function ReviewPanel({
   validationIssues?: ValidationIssue[] | undefined;
   focusedValidationIssue?: ValidationIssue | null | undefined;
   canUndoStatus: boolean;
+  language: AppLanguage;
+  t: Translator;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onBulkStatus: (bucket: ObjectBucket, objects: XrayObject[], status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
@@ -191,40 +203,40 @@ export function ReviewPanel({
   return (
     <section className="panel" id="review">
       <div className="section-heading">
-        <span>분석 검토</span>
-        <h2>AI 제안 초안</h2>
+        <span>{t("review.section")}</span>
+        <h2>{t("review.title")}</h2>
       </div>
-      <MergeImpactPanel analysisSummary={analysisSummary} structureDiff={structureDiff} />
+      <MergeImpactPanel analysisSummary={analysisSummary} structureDiff={structureDiff} t={t} />
       <div className="review-toolbar">
         <label>
-          제안 종류 필터
+          {t("review.bucketFilter")}
           <select value={bucketFilter} onChange={(event) => setBucketFilter(event.target.value as BucketFilter)}>
-            <option value="all">전체</option>
+            <option value="all">{filterLabel("all", language)}</option>
             {(Object.keys(BUCKET_LABELS) as ObjectBucket[]).map((bucket) => (
-              <option key={bucket} value={bucket}>{BUCKET_LABELS[bucket]}</option>
+              <option key={bucket} value={bucket}>{getBucketLabel(language, bucket)}</option>
             ))}
           </select>
         </label>
         <label>
-          제안 검색
+          {t("review.search")}
           <input
             type="search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="이름이나 설명 검색"
+            placeholder={t("review.searchPlaceholder")}
           />
         </label>
         <button
           className="secondary"
           type="button"
-          aria-label="최근 판정 되돌리기"
+          aria-label={t("review.undo")}
           disabled={!canUndoStatus}
           onClick={onUndoStatus}
         >
-          최근 판정 되돌리기
+          {t("review.undo")}
         </button>
       </div>
-      <div className="review-filters" aria-label="Review status filters">
+      <div className="review-filters" aria-label={t("review.filtersAria")}>
         {REVIEW_FILTERS.map((nextFilter) => (
           <button
             className={statusFilter === nextFilter ? "active" : "secondary"}
@@ -232,7 +244,7 @@ export function ReviewPanel({
             type="button"
             onClick={() => setStatusFilter(nextFilter)}
           >
-            {filterLabel(nextFilter)}
+            {filterLabel(nextFilter, language)}
           </button>
         ))}
       </div>
@@ -248,7 +260,9 @@ export function ReviewPanel({
           onBulkStatus={onBulkStatus}
           onEdit={onEdit}
           onStatus={onStatus}
-          title={BUCKET_LABELS[bucket]}
+          language={language}
+          t={t}
+          title={getBucketLabel(language, bucket)}
         />
       ))}
     </section>
@@ -266,6 +280,8 @@ function ReviewGroup({
   onStatus,
   onBulkStatus,
   onEdit,
+  language,
+  t,
 }: {
   title: string;
   bucket: ObjectBucket;
@@ -274,43 +290,45 @@ function ReviewGroup({
   objects: XrayObject[];
   changes: Map<string, AnalysisChange>;
   validationIssuesByObject: Map<string, ValidationIssue[]>;
+  language: AppLanguage;
+  t: Translator;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onBulkStatus: (bucket: ObjectBucket, objects: XrayObject[], status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
-  const filteredObjects = filterObjects(objects, statusFilter, searchTerm);
+  const filteredObjects = filterObjects(objects, statusFilter, searchTerm, language);
   const counts = countByStatus(objects);
 
   return (
-    <div className="review-group" aria-label={`리뷰 그룹: ${title}`}>
+    <div className="review-group" aria-label={t("review.groupAria", { title })}>
       <div className="review-group-heading">
         <div>
           <h3>{title} <span>{filteredObjects.length} / {objects.length}</span></h3>
-          <StatusCounts counts={counts} />
+          <StatusCounts counts={counts} language={language} t={t} />
         </div>
         <div className="row-actions">
           <button
             type="button"
             disabled={filteredObjects.length === 0}
-            aria-label={`${title} 표시 항목 모두 확정`}
+            aria-label={t("review.acceptVisible", { title })}
             onClick={() => onBulkStatus(bucket, filteredObjects, "accepted")}
           >
-            {title} 표시 항목 모두 확정
+            {t("review.acceptVisible", { title })}
           </button>
           <button
             className="danger"
             type="button"
             disabled={filteredObjects.length === 0}
-            aria-label={`${title} 표시 항목 모두 제외`}
+            aria-label={t("review.rejectVisible", { title })}
             onClick={() => onBulkStatus(bucket, filteredObjects, "rejected")}
           >
-            {title} 표시 항목 모두 제외
+            {t("review.rejectVisible", { title })}
           </button>
         </div>
       </div>
       <div className="review-list">
-        {objects.length === 0 ? <p className="muted">아직 제안이 없습니다.</p> : null}
-        {objects.length > 0 && filteredObjects.length === 0 ? <p className="muted">현재 필터에 맞는 제안이 없습니다.</p> : null}
+        {objects.length === 0 ? <p className="muted">{t("review.empty")}</p> : null}
+        {objects.length > 0 && filteredObjects.length === 0 ? <p className="muted">{t("review.noFilterResults")}</p> : null}
         {filteredObjects.map((object) => (
           <ReviewRow
             bucket={bucket}
@@ -320,6 +338,8 @@ function ReviewGroup({
             validationIssues={validationIssuesByObject.get(validationIssueMapKey(bucket, object.id)) ?? []}
             onEdit={onEdit}
             onStatus={onStatus}
+            language={language}
+            t={t}
           />
         ))}
       </div>
@@ -334,11 +354,15 @@ function ReviewRow({
   validationIssues,
   onStatus,
   onEdit,
+  language,
+  t,
 }: {
   bucket: ObjectBucket;
   object: XrayObject;
   change?: AnalysisChange | undefined;
   validationIssues: ValidationIssue[];
+  language: AppLanguage;
+  t: Translator;
   onStatus: (bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) => void;
   onEdit: (bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) => void;
 }) {
@@ -360,7 +384,7 @@ function ReviewRow({
       <article
         className="review-row editing"
         id={getValidationTargetElementId(bucket, object.id)}
-        aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}
+        aria-label={t("review.itemAria", { bucket: titleForBucket(bucket, language), name: getObjectLabel(object) })}
       >
         <div className="edit-fields">
           {EDIT_FIELDS[bucket].map((field) => (
@@ -368,15 +392,18 @@ function ReviewRow({
               draft={draft}
               field={field}
               key={field.key}
+              language={language}
+              bucket={bucket}
+              t={t}
               onChange={(nextDraft) => setDraft(nextDraft)}
             />
           ))}
         </div>
-        <StatusBadge status={object.status} />
-        {validationIssues.length > 0 ? <ValidationBadgeStack issues={validationIssues} /> : null}
+        <StatusBadge status={object.status} language={language} />
+        {validationIssues.length > 0 ? <ValidationBadgeStack issues={validationIssues} t={t} /> : null}
         <div className="row-actions">
-          <button type="button" aria-label={`${getObjectLabel(object)} 저장`} onClick={saveEdit}>저장</button>
-          <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} 취소`} onClick={() => setIsEditing(false)}>취소</button>
+          <button type="button" aria-label={`${getObjectLabel(object)} ${t("review.save")}`} onClick={saveEdit}>{t("review.save")}</button>
+          <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} ${t("review.cancel")}`} onClick={() => setIsEditing(false)}>{t("review.cancel")}</button>
         </div>
       </article>
     );
@@ -386,43 +413,50 @@ function ReviewRow({
     <article
       className="review-row"
       id={getValidationTargetElementId(bucket, object.id)}
-      aria-label={`리뷰 항목: ${titleForBucket(bucket)} - ${getObjectLabel(object)}`}
+      aria-label={t("review.itemAria", { bucket: titleForBucket(bucket, language), name: getObjectLabel(object) })}
     >
       <div>
         <strong>{getObjectLabel(object)}</strong>
-        <p>{getObjectDescription(object)}</p>
-        {object.sourceTrace?.quote ? <small className="row-note">원문 근거: {object.sourceTrace.quote}</small> : <small className="row-note">원문 근거 없음</small>}
-        {"resolutionNote" in object && object.resolutionNote ? <small className="row-note">결정 메모: {object.resolutionNote}</small> : null}
+        <p>{getObjectDescription(object, t)}</p>
+        {object.sourceTrace?.quote ? <small className="row-note">{t("review.evidence", { quote: object.sourceTrace.quote })}</small> : <small className="row-note">{t("review.noEvidence")}</small>}
+        {"resolutionNote" in object && object.resolutionNote ? <small className="row-note">{t("review.resolutionNote", { note: object.resolutionNote })}</small> : null}
       </div>
       <div className="badge-stack">
-        {change ? <AnalysisChangeBadge change={change} /> : null}
-        {validationIssues.length > 0 ? <ValidationBadgeStack issues={validationIssues} /> : null}
-        <StatusBadge status={object.status} />
+        {change ? <AnalysisChangeBadge change={change} t={t} /> : null}
+        {validationIssues.length > 0 ? <ValidationBadgeStack issues={validationIssues} t={t} /> : null}
+        <StatusBadge status={object.status} language={language} />
       </div>
       <div className="row-actions">
-        <button type="button" aria-label={`${getObjectLabel(object)} 확정`} onClick={() => onStatus(bucket, object, "accepted")}>확정</button>
-        <button type="button" aria-label={`${getObjectLabel(object)} 수정`} onClick={startEdit}>수정</button>
-        <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} 나중`} onClick={() => onStatus(bucket, object, "deferred")}>나중</button>
-        <button className="danger" type="button" aria-label={`${getObjectLabel(object)} 제외`} onClick={() => onStatus(bucket, object, "rejected")}>제외</button>
+        <button type="button" aria-label={`${getObjectLabel(object)} ${t("review.accept")}`} onClick={() => onStatus(bucket, object, "accepted")}>{t("review.accept")}</button>
+        <button type="button" aria-label={`${getObjectLabel(object)} ${t("review.edit")}`} onClick={startEdit}>{t("review.edit")}</button>
+        <button className="secondary" type="button" aria-label={`${getObjectLabel(object)} ${t("review.defer")}`} onClick={() => onStatus(bucket, object, "deferred")}>{t("review.defer")}</button>
+        <button className="danger" type="button" aria-label={`${getObjectLabel(object)} ${t("review.reject")}`} onClick={() => onStatus(bucket, object, "rejected")}>{t("review.reject")}</button>
       </div>
     </article>
   );
 }
 
-function titleForBucket(bucket: ObjectBucket): string {
-  return BUCKET_LABELS[bucket];
+function titleForBucket(bucket: ObjectBucket, language: AppLanguage): string {
+  return getBucketLabel(language, bucket);
 }
 
 function EditFieldControl({
   draft,
   field,
+  bucket,
+  language,
+  t,
   onChange,
 }: {
   draft: EditDraft;
   field: EditField;
+  bucket: ObjectBucket;
+  language: AppLanguage;
+  t: Translator;
   onChange: (draft: EditDraft) => void;
 }) {
   const value = draft[field.key];
+  const label = getEditFieldLabel(language, bucket, field.key, field.label);
   if (field.kind === "checkbox") {
     return (
       <label className="checkbox-label">
@@ -431,16 +465,16 @@ function EditFieldControl({
           type="checkbox"
           onChange={(event) => onChange({ ...draft, [field.key]: event.target.checked })}
         />
-        {field.label}
+        {label}
       </label>
     );
   }
   if (field.kind === "select") {
     return (
       <label>
-        {field.label}
+        {label}
         <select value={String(value ?? "")} onChange={(event) => onChange({ ...draft, [field.key]: event.target.value })}>
-          <option value="">미정</option>
+          <option value="">{t("review.unknown")}</option>
           {field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
         </select>
       </label>
@@ -449,14 +483,14 @@ function EditFieldControl({
   if (field.kind === "textarea") {
     return (
       <label>
-        {field.label}
+        {label}
         <textarea value={String(value ?? "")} onChange={(event) => onChange({ ...draft, [field.key]: event.target.value })} rows={3} />
       </label>
     );
   }
   return (
     <label>
-      {field.label}
+      {label}
       <input
         type={field.kind === "number" ? "number" : "text"}
         value={String(value ?? "")}
@@ -466,22 +500,22 @@ function EditFieldControl({
   );
 }
 
-export function StatusBadge({ status }: { status: SuggestionStatus }) {
-  return <span className={`badge ${status}`}>{STATUS_LABELS[status]}</span>;
+export function StatusBadge({ status, language = "ko" }: { status: SuggestionStatus; language?: AppLanguage }) {
+  return <span className={`badge ${status}`}>{getStatusLabel(language, status)}</span>;
 }
 
-export function AnalysisChangeBadge({ change }: { change: AnalysisChange }) {
+export function AnalysisChangeBadge({ change, t }: { change: AnalysisChange; t: Translator }) {
   const labelByType: Record<AnalysisChange["changeType"], string> = {
-    added_suggestion: "새 제안",
-    refreshed_suggestion: "갱신됨",
-    preserved_confirmed: "확정 보존",
-    preserved_review_decision: "판정 보존",
+    added_suggestion: t("review.change.added"),
+    refreshed_suggestion: t("review.change.refreshed"),
+    preserved_confirmed: t("review.change.preservedConfirmed"),
+    preserved_review_decision: t("review.change.preservedDecision"),
   };
 
   return <span className={`change-badge ${change.changeType}`}>{labelByType[change.changeType]}</span>;
 }
 
-function ValidationBadgeStack({ issues }: { issues: ValidationIssue[] }) {
+function ValidationBadgeStack({ issues, t }: { issues: ValidationIssue[]; t: Translator }) {
   return (
     <>
       {issues.map((issue) => (
@@ -490,7 +524,7 @@ function ValidationBadgeStack({ issues }: { issues: ValidationIssue[] }) {
           key={issue.id}
           title={issue.message}
         >
-          {issue.severity === "error" ? "내보내기 차단" : "확인 필요"}
+          {issue.severity === "error" ? t("review.validationBlocked") : t("review.validationWarning")}
         </span>
       ))}
     </>
@@ -500,32 +534,34 @@ function ValidationBadgeStack({ issues }: { issues: ValidationIssue[] }) {
 function MergeImpactPanel({
   analysisSummary,
   structureDiff,
+  t,
 }: {
   analysisSummary?: WorkspaceAnalysisSummary | undefined;
   structureDiff?: StructureDiffReport | undefined;
+  t: Translator;
 }) {
   if (!analysisSummary && !structureDiff) return null;
 
   return (
-    <div className="merge-impact-panel" aria-label="재분석 영향">
-      <strong>재분석 영향</strong>
-      <span>새 제안 {analysisSummary?.addedSuggestedCount ?? structureDiff?.counts.added ?? 0}</span>
-      <span>갱신 제안 {analysisSummary?.refreshedSuggestedCount ?? structureDiff?.counts.changed ?? 0}</span>
-      <span>보존된 확정 {analysisSummary?.preservedConfirmedCount ?? structureDiff?.counts.preserved_confirmed ?? 0}</span>
-      <span>보존된 판정 {analysisSummary?.preservedReviewDecisionCount ?? 0}</span>
-      <span>상태 변경 {structureDiff?.counts.status_changed ?? 0}</span>
+    <div className="merge-impact-panel" aria-label={t("review.mergeImpact")}>
+      <strong>{t("review.mergeImpact")}</strong>
+      <span>{t("source.newSuggestions", { count: analysisSummary?.addedSuggestedCount ?? structureDiff?.counts.added ?? 0 })}</span>
+      <span>{t("source.refreshedSuggestions", { count: analysisSummary?.refreshedSuggestedCount ?? structureDiff?.counts.changed ?? 0 })}</span>
+      <span>{t("source.preservedConfirmed", { count: analysisSummary?.preservedConfirmedCount ?? structureDiff?.counts.preserved_confirmed ?? 0 })}</span>
+      <span>{t("source.preservedDecisions", { count: analysisSummary?.preservedReviewDecisionCount ?? 0 })}</span>
+      <span>{t("diff.statusChanged")} {structureDiff?.counts.status_changed ?? 0}</span>
     </div>
   );
 }
 
-function StatusCounts({ counts }: { counts: Record<ReviewFilter, number> }) {
+function StatusCounts({ counts, language, t }: { counts: Record<ReviewFilter, number>; language: AppLanguage; t: Translator }) {
   return (
-    <div className="bucket-status-counts" aria-label="상태별 제안 수">
-      <span>검토 대기 {counts.suggested}</span>
-      <span>확정 {counts.accepted}</span>
-      <span>수정 확정 {counts.edited}</span>
-      <span>나중에 결정 {counts.deferred}</span>
-      <span>제외 {counts.rejected}</span>
+    <div className="bucket-status-counts" aria-label={t("review.statusCountsAria")}>
+      <span>{getStatusLabel(language, "suggested")} {counts.suggested}</span>
+      <span>{getStatusLabel(language, "accepted")} {counts.accepted}</span>
+      <span>{getStatusLabel(language, "edited")} {counts.edited}</span>
+      <span>{getStatusLabel(language, "deferred")} {counts.deferred}</span>
+      <span>{getStatusLabel(language, "rejected")} {counts.rejected}</span>
     </div>
   );
 }
@@ -539,14 +575,14 @@ export function getObjectLabel(object: XrayObject): string {
   return object.id;
 }
 
-function getObjectDescription(object: XrayObject): string {
+function getObjectDescription(object: XrayObject, t?: Translator): string {
   if ("description" in object && object.description) return object.description;
   if ("text" in object) return object.text;
   if ("actionDescription" in object) return object.actionDescription;
   if ("fieldType" in object) return `${object.name}: ${object.fieldType}`;
   if ("relationType" in object) return `${object.sourceObjectId} → ${object.targetObjectId}`;
-  if ("action" in object) return `${object.allowed ? "허용" : "차단"} ${object.action}`;
-  return "설명이 없습니다.";
+  if ("action" in object && t) return `${object.allowed ? t("review.allowed") : t("review.blocked")} ${object.action}`;
+  return t ? t("review.descriptionMissing") : "";
 }
 
 function createDraft(bucket: ObjectBucket, object: XrayObject): EditDraft {
@@ -590,8 +626,8 @@ function normalizeValue(value: unknown): string | boolean {
   return String(value);
 }
 
-function filterObjects<T extends XrayObject>(objects: T[], filter: ReviewFilter, searchTerm: string): T[] {
-  const normalizedSearch = searchTerm.trim().toLocaleLowerCase("ko-KR");
+function filterObjects<T extends XrayObject>(objects: T[], filter: ReviewFilter, searchTerm: string, language: AppLanguage): T[] {
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase(searchLocale(language));
   return objects.filter((object) => {
     const matchesStatus = filter === "all" || object.status === filter;
     const matchesSearch = !normalizedSearch || searchableObjectText(object).includes(normalizedSearch);
@@ -632,9 +668,9 @@ function validationIssueMapKey(bucket: ObjectBucket, objectId: string): string {
   return `${bucket}:${objectId}`;
 }
 
-function filterLabel(filter: ReviewFilter): string {
-  if (filter === "all") return "전체";
-  return STATUS_LABELS[filter];
+function filterLabel(filter: ReviewFilter, language: AppLanguage): string {
+  if (filter === "all") return language === "ko" ? "전체" : "All";
+  return getStatusLabel(language, filter);
 }
 
 type EditDraft = Record<string, string | boolean>;

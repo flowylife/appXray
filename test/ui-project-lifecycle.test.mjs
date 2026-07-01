@@ -74,6 +74,38 @@ test("empty project list explains the next action in Korean", async () => {
   assert.equal(window.location.hash, "#/projects");
 });
 
+test("language selector switches the shell to English and persists the choice", async () => {
+  await renderApp("#/projects/new");
+
+  await fillLabeledControl("언어", "en");
+
+  assert.match(document.body.textContent, /New Project/);
+  assert.match(document.body.textContent, /Source Input/);
+  assert.match(document.body.textContent, /No saved structure yet/);
+  assert.equal(localStorage.getItem("app-xray.language.v1"), "en");
+
+  await fillLabeledControl("Project Name", "Maintenance Tracker");
+  await fillLabeledControl("Idea / PRD", "Track assets, work orders, technicians, and admin permissions.");
+  await clickButton("Save Project");
+
+  assert.match(document.body.textContent, /Saved locally/);
+  assert.equal(window.location.hash, "#/projects/project_0001/review");
+
+  await act(async () => root.unmount());
+  root = undefined;
+  container.innerHTML = "";
+  const nextRoot = document.createElement("div");
+  nextRoot.id = "root";
+  document.body.append(nextRoot);
+  container = nextRoot;
+
+  await renderApp("#/projects");
+
+  assert.match(document.body.textContent, /Language/);
+  assert.match(document.body.textContent, /Local Projects/);
+  assert.equal(document.querySelector(".language-selector select")?.value, "en");
+});
+
 test("new project form validates user-provided name and source text", async () => {
   await renderApp("#/projects/new");
 
