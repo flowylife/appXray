@@ -28,10 +28,6 @@ App X-Ray gives you a structured map of the app before implementation begins, so
 
 ![App X-Ray export panel](docs/assets/screenshots/app-xray-export-desktop.png)
 
-### Mobile Review
-
-![App X-Ray mobile review](docs/assets/screenshots/app-xray-review-mobile.png)
-
 ## Core Principle
 
 ```text
