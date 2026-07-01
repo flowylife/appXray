@@ -51,6 +51,8 @@ AI 결과는 초안입니다. 기본 export에는 사용자가 `accepted` 또는
 - export 전 검증 결과를 보여주고 영향을 받는 검토 항목으로 이동할 수 있습니다.
 - Markdown, Mermaid, JSON, CSV, Codex/Cursor 프롬프트, GitHub issue 초안, bundle JSON을 내보냅니다.
 - 프로젝트를 브라우저 로컬에 저장하고 workspace backup/restore를 지원합니다.
+- 앱 안의 언어 선택 기능으로 한국어 또는 영어 UI를 사용할 수 있습니다.
+- 일상적으로 더 쉽게 쓰기 위해 local Electron 데스크톱 앱으로 패키징할 수 있습니다.
 - 오프라인 deterministic mock 분석과 OpenAI, Anthropic, Google Gemini, OpenRouter BYOK 설정을 지원합니다.
 
 ## 제품 경계
@@ -120,7 +122,7 @@ Idea / PRD / notes
 - Node.js 20+
 - npm
 
-### 설치와 실행
+### 웹 앱 설치와 실행
 
 ```bash
 npm install
@@ -131,20 +133,26 @@ Vite dev server는 기본적으로 `127.0.0.1`에 바인딩됩니다.
 
 ### 데스크톱 앱
 
-App X-Ray는 local Electron 데스크톱 앱으로도 실행할 수 있습니다.
+App X-Ray는 local Electron 데스크톱 앱으로도 실행할 수 있습니다. 데스크톱 셸은 같은 local-first React 앱을 로드하며, Electron renderer는 `contextIsolation`, 비활성화된 Node integration, 최소 preload bridge로 격리됩니다.
 
 ```bash
 npm run electron:dev
 ```
 
-패키지된 데스크톱 빌드를 만들려면 다음 명령을 사용합니다.
+패키지된 macOS 데스크톱 빌드를 만들려면 다음 명령을 사용합니다.
 
 ```bash
 npm run package:dir
 npm run package:mac
 ```
 
-생성된 데스크톱 패키지는 `release/`에 저장됩니다. macOS 빌드는 기본적으로 서명되지 않으므로, 처음 실행할 때 로컬 Gatekeeper 정책에 따라 Finder에서 수동으로 열어야 할 수 있습니다.
+생성된 데스크톱 패키지는 `release/`에 저장됩니다.
+
+- `release/mac-arm64/App X-Ray.app`: 로컬 테스트용 unpacked app
+- `release/App X-Ray-0.0.0-arm64.dmg`: macOS 설치 이미지
+- `release/App X-Ray-0.0.0-arm64-mac.zip`: 압축된 macOS 앱
+
+macOS 빌드는 현재 기본적으로 서명되지 않으므로, 처음 실행할 때 로컬 Gatekeeper 정책에 따라 Finder에서 수동으로 열어야 할 수 있습니다.
 
 ### 품질 확인
 
@@ -153,6 +161,36 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+```
+
+생성 산출물:
+
+- `dist/`: TypeScript compile output
+- `app-dist/`: Vite production build output
+- `release/`: Electron desktop package output
+- `test-results/`: Playwright test output
+- `playwright-report/`: Playwright HTML report
+
+## 저장소 구조
+
+```text
+src/
+  ai/            AI adapter, BYOK provider, structured prompt logic
+  app/           React shell에서 분리한 앱 레벨 workflow
+  components/    Review, map, export UI
+  domain/        App X-Ray data model, lifecycle, validation, routing
+  export/        Markdown, Mermaid, JSON, CSV, prompt, bundle export
+  i18n.ts        한국어/영어 UI label
+  storage/       Local project repository, backup, autosave snapshot
+electron/
+  main.cjs       보안 설정이 적용된 Electron main process
+  preload.cjs    최소 isolated preload bridge
+test/
+  e2e/           Playwright browser flows
+  *.test.mjs     Domain, UI, storage, AI, export test
+docs/product/    Product boundary, service readiness, QA, packaging docs
+app-xray-codex-rules/
+  App X-Ray 개발에 사용하는 제품/엔지니어링 규칙
 ```
 
 ## 기여

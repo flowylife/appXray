@@ -51,6 +51,8 @@ AI output starts as a draft. Only user-confirmed `accepted` and `edited` structu
 - Validates export readiness and points users to affected review rows.
 - Exports Markdown, Mermaid diagrams, JSON, CSV, Codex/Cursor prompts, GitHub issue drafts, and bundle JSON.
 - Stores projects locally in the browser and supports workspace backup and restore.
+- Runs in Korean or English through the in-app language selector.
+- Can be packaged as a local Electron desktop app for easier everyday use.
 - Supports deterministic mock analysis and BYOK provider settings for OpenAI, Anthropic, Google Gemini, and OpenRouter.
 
 ## Product Boundary
@@ -120,7 +122,7 @@ Idea / PRD / notes
 - Node.js 20+
 - npm
 
-### Install and Run
+### Install and Run the Web App
 
 ```bash
 npm install
@@ -131,20 +133,26 @@ The Vite dev server binds to `127.0.0.1` by default.
 
 ### Desktop App
 
-App X-Ray can also run as a local Electron desktop app.
+App X-Ray can also run as a local Electron desktop app. The desktop shell loads the same local-first React app and keeps the renderer isolated with Electron's `contextIsolation`, disabled Node integration, and a minimal preload bridge.
 
 ```bash
 npm run electron:dev
 ```
 
-To create a packaged desktop build:
+To create a packaged macOS desktop build:
 
 ```bash
 npm run package:dir
 npm run package:mac
 ```
 
-Generated desktop packages are written to `release/`. macOS builds are unsigned by default, so local Gatekeeper policy may require opening the app manually from Finder the first time.
+Generated desktop packages are written to `release/`:
+
+- `release/mac-arm64/App X-Ray.app`: unpacked local test build
+- `release/App X-Ray-0.0.0-arm64.dmg`: macOS installer image
+- `release/App X-Ray-0.0.0-arm64-mac.zip`: zipped macOS app
+
+macOS builds are currently unsigned by default, so local Gatekeeper policy may require opening the app manually from Finder the first time.
 
 ### Quality Checks
 
@@ -159,6 +167,7 @@ Generated outputs:
 
 - `dist/`: TypeScript compile output
 - `app-dist/`: Vite production build output
+- `release/`: Electron desktop package output
 - `test-results/`: Playwright test output
 - `playwright-report/`: Playwright HTML report
 
@@ -171,7 +180,11 @@ src/
   components/    Review, map, and export UI
   domain/        Core App X-Ray data model, lifecycle, validation, routing
   export/        Markdown, Mermaid, JSON, CSV, prompt, and bundle exports
+  i18n.ts        Korean and English UI labels
   storage/       Local project repository, backups, autosave snapshots
+electron/
+  main.cjs       Secure Electron main process
+  preload.cjs    Minimal isolated preload bridge
 test/
   e2e/           Playwright browser flows
   *.test.mjs     Node test runner coverage for domain, UI, storage, AI, export
