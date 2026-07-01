@@ -92,6 +92,7 @@ button.danger {
   position: sticky;
   top: 0;
   height: 100vh;
+  min-width: 0;
 }
 
 .brand {
@@ -209,6 +210,7 @@ nav a:hover {
 .workspace {
   display: grid;
   gap: 1rem;
+  min-width: 0;
   padding: 1.4rem;
 }
 
@@ -300,8 +302,10 @@ textarea {
   border: 1px solid #cfdbd7;
   border-radius: 8px;
   color: #172026;
+  min-width: 0;
   padding: 0.75rem;
   resize: vertical;
+  width: 100%;
 }
 
 .button-row {
@@ -1038,5 +1042,57 @@ textarea {
 
   .map-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .sidebar,
+  .workspace {
+    padding: 1rem;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #dfe7e4;
+    gap: 1rem;
+  }
+
+  nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  nav a {
+    padding: 0.62rem 0.7rem;
+  }
+
+  .topbar,
+  .panel,
+  .empty-state {
+    padding: 1rem;
+  }
+
+  .topbar-actions,
+  .button-row,
+  .segmented,
+  .export-preview-actions {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-actions button,
+  .button-row button,
+  .segmented button,
+  .file-button {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .source-meta span,
+  .analysis-history span,
+  .diff-summary span,
+  .diff-detail span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 }
