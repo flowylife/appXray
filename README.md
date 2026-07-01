@@ -2,6 +2,8 @@
 
 > See your app before AI builds it.
 
+[한국어](README.ko.md)
+
 App X-Ray is a local-first, open-source planning tool for people who want to turn app ideas, PRDs, and working notes into a reviewable app structure before sending anything to an AI coding tool.
 
 It does not generate code or modify your target repository. Instead, it helps you review the product shape first: screens, data objects, permissions, missing decisions, user flows, build prompts, and exports for tools such as Codex, Cursor, Lovable, Replit, and Bolt.
@@ -11,6 +13,24 @@ It does not generate code or modify your target repository. Instead, it helps yo
 AI coding works best when the app structure is clear. Many users know their domain well but still struggle to translate that knowledge into screens, data models, permissions, and workflows.
 
 App X-Ray gives you a structured map of the app before implementation begins, so vague prompts do not turn into vague software.
+
+## Screenshots
+
+### Review Workbench
+
+![App X-Ray review workbench](docs/assets/screenshots/app-xray-review-desktop.png)
+
+### App Map
+
+![App X-Ray app map](docs/assets/screenshots/app-xray-maps-desktop.png)
+
+### Export Readiness
+
+![App X-Ray export panel](docs/assets/screenshots/app-xray-export-desktop.png)
+
+### Mobile Review
+
+![App X-Ray mobile review](docs/assets/screenshots/app-xray-review-mobile.png)
 
 ## Core Principle
 
