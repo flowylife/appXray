@@ -36,13 +36,12 @@ export function appendSourceDocumentVersion(
   content: string,
   options: { id: string; createdAt: string; sourceType?: SourceDocument["sourceType"] | undefined },
 ): ProjectWorkspace {
-  const trimmedContent = content.trim();
   const latest = getLatestSourceDocument(workspace);
-  if (latest?.content.trim() === trimmedContent) return workspace;
+  if (latest?.content === content) return workspace;
 
   const sourceDocument = createSourceDocumentVersion({
     project: workspace.project,
-    content: trimmedContent,
+    content,
     createdAt: options.createdAt,
     id: options.id,
     previousVersion: latest?.version ?? 0,

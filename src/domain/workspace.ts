@@ -27,7 +27,8 @@ export type XraySuggestionBucket = keyof XraySuggestionSet;
 export type AnalysisChangeType =
   | "added_suggestion"
   | "refreshed_suggestion"
-  | "preserved_confirmed";
+  | "preserved_confirmed"
+  | "preserved_review_decision";
 
 export type AnalysisChange = {
   bucket: XraySuggestionBucket;
@@ -44,6 +45,7 @@ export type WorkspaceAnalysisSummary = {
   addedSuggestedCount: number;
   refreshedSuggestedCount: number;
   preservedConfirmedCount: number;
+  preservedReviewDecisionCount: number;
   changes: AnalysisChange[];
 };
 

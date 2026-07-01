@@ -67,6 +67,11 @@ Preferred model:
 - no AI token resale
 - export to Markdown, Mermaid, JSON, and build prompts
 
+Product-facing docs:
+
+- [Service readiness](../docs/product/service-readiness.md)
+- [Local-first data contract](../docs/product/local-first-data-contract.md)
+
 ## Template Marketplace Direction
 
 The future App X-Ray ecosystem may include a template marketplace.

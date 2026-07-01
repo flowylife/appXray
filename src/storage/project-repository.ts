@@ -1,4 +1,5 @@
-import type { ProjectWorkspace } from "../domain/workspace.js";
+import type { SourceDocument } from "../domain/types.js";
+import { createEmptySuggestionSet, type ProjectWorkspace } from "../domain/workspace.js";
 
 export type ProjectRepository = {
   load(): ProjectWorkspace | null;
@@ -35,6 +36,15 @@ export type ProjectCollectionLoadResult = {
   error?: string | undefined;
 };
 
+export type CreateProjectWorkspaceInput = {
+  name: string;
+  sourceText: string;
+  sourceType: SourceDocument["sourceType"];
+  now?: string | undefined;
+  projectId?: string | undefined;
+  sourceDocumentId?: string | undefined;
+};
+
 const LEGACY_STORAGE_KEY = "app-xray.workspace.v1";
 const COLLECTION_STORAGE_KEY = "app-xray.projects.v1";
 
@@ -56,23 +66,29 @@ export function createLocalStorageProjectRepository(
       return loadProjectCollection(storage);
     },
     save(workspace) {
-      return saveWorkspaceToCollection(storage, workspace);
+      const result = saveWorkspaceToCollection(storage, workspace);
+      if (result.error) throw new Error(result.error);
     },
     saveWorkspace(workspace) {
-      saveWorkspaceToCollection(storage, workspace);
-      return loadProjectCollection(storage);
+      return saveWorkspaceToCollection(storage, workspace);
     },
     setActiveProject(projectId) {
       const result = loadProjectCollection(storage);
+      const requestedWorkspace = result.collection.workspaces.find((workspace) => workspace.project.id === projectId);
+      if (!requestedWorkspace) {
+        return {
+          workspace: result.activeWorkspace,
+          error: "요청한 로컬 프로젝트를 찾을 수 없습니다.",
+        };
+      }
       const collection = {
         ...result.collection,
         activeProjectId: projectId,
         updatedAt: new Date().toISOString(),
       };
       storage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(collection));
-      const activeWorkspace = collection.workspaces.find((workspace) => workspace.project.id === projectId) ?? null;
       return {
-        workspace: activeWorkspace,
+        workspace: requestedWorkspace,
         error: result.error,
       };
     },
@@ -169,12 +185,55 @@ export function summarizeProjects(collection: ProjectCollection): ProjectSummary
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+export function createProjectWorkspace(input: CreateProjectWorkspaceInput): ProjectWorkspace {
+  const now = input.now ?? new Date().toISOString();
+  const projectId = input.projectId ?? `project_${crypto.randomUUID()}`;
+  const sourceDocumentId = input.sourceDocumentId ?? `src_${crypto.randomUUID()}`;
+  const projectName = input.name.trim() || "새 앱 아이디어";
+
+  return {
+    project: {
+      id: projectId,
+      name: projectName,
+      description: "AI가 만들기 전에 구조를 먼저 확인하는 로컬 프로젝트",
+      appTypes: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+    sourceDocuments: [
+      {
+        id: sourceDocumentId,
+        projectId,
+        title: "아이디어 / PRD",
+        content: input.sourceText.trim(),
+        sourceType: input.sourceType,
+        version: 1,
+        createdAt: now,
+      },
+    ],
+    objects: createEmptySuggestionSet(),
+    buildPlanSuggestions: [],
+    updatedAt: now,
+  };
+}
+
 function saveWorkspaceToCollection(
   storage: Pick<Storage, "getItem" | "setItem">,
   workspace: ProjectWorkspace,
-): void {
+): ProjectCollectionLoadResult {
   const current = loadProjectCollection(storage).collection;
   const existingIndex = current.workspaces.findIndex((candidate) => candidate.project.id === workspace.project.id);
+  const duplicateName = current.workspaces.find(
+    (candidate) =>
+      candidate.project.id !== workspace.project.id &&
+      normalizeProjectName(candidate.project.name) === normalizeProjectName(workspace.project.name),
+  );
+  if (duplicateName) {
+    return toCollectionLoadResult(
+      current,
+      `이미 같은 이름의 로컬 프로젝트가 있습니다: ${duplicateName.project.name}`,
+    );
+  }
   const workspaces =
     existingIndex === -1
       ? [workspace, ...current.workspaces]
@@ -185,6 +244,7 @@ function saveWorkspaceToCollection(
     updatedAt: workspace.updatedAt,
   };
   storage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(collection));
+  return toCollectionLoadResult(collection);
 }
 
 function loadLegacyWorkspace(storage: Pick<Storage, "getItem">): ProjectLoadResult {
@@ -222,4 +282,8 @@ function emptyCollection(): ProjectCollection {
     workspaces: [],
     updatedAt: new Date(0).toISOString(),
   };
+}
+
+function normalizeProjectName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR");
 }

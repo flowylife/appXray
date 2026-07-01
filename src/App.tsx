@@ -1,34 +1,67 @@
 import { useEffect, useMemo, useState } from "react";
-import { mockAiProviderAdapter, validateAiAnalysisResult } from "./ai/adapter.js";
+import { mockAiProviderAdapter } from "./ai/adapter.js";
+import { runWorkspaceAnalysis } from "./app/run-analysis.js";
+import { AI_PROVIDER_REGISTRY, getAiProviderMetadata } from "./ai/provider-registry.js";
 import { DEFAULT_AI_PROVIDER_CONFIG, loadAiProviderConfig, saveAiProviderConfig, type AiProviderConfig, type AiProviderName } from "./ai/settings.js";
 import { ExportPanel } from "./components/ExportPanel.js";
 import { MapPanels, MissingParts } from "./components/MapPanels.js";
 import { type EditableXrayObject, type ObjectBucket, ReviewPanel } from "./components/ReviewPanel.js";
-import { convertAiAnalysisToXrayObjects } from "./domain/convert.js";
-import { compareSuggestionSets } from "./domain/diff.js";
 import {
+  applyStatusDecisionToSuggestionSet,
   editXrayObject,
-  mergeAiSuggestionsPreservingConfirmed,
-  summarizeSuggestionMergeImpact,
-  updateXrayObjectStatus,
+  type ReviewStatusDecisionGroup,
+  undoLatestStatusDecision,
 } from "./domain/lifecycle.js";
-import { parseAppRoute, projectRoute } from "./domain/routes.js";
+import { parseAppRoute, projectOrListRoute, projectRoute, type ProjectRouteSection } from "./domain/routes.js";
 import { classifySourceFile } from "./domain/source-import.js";
 import { appendSourceDocumentVersion, getLatestSourceDocument } from "./domain/source-documents.js";
 import { isConfirmedXrayObject } from "./domain/status.js";
 import { applyTemplateToWorkspace } from "./domain/template.js";
 import type { BaseXrayObject, SourceDocument, SuggestionStatus, XrayObject, XraySuggestionSet } from "./domain/types.js";
+import { getValidationIssueElementId, getValidationIssueTarget, getValidationReviewRoute } from "./domain/validation-actions.js";
+import { validateWorkspace, type ValidationIssue } from "./domain/validation.js";
 import type { ProjectWorkspace } from "./domain/workspace.js";
-import { createEmptySuggestionSet } from "./domain/workspace.js";
 import type { ExportType } from "./export/export-content.js";
 import { fieldPowerAppSourceDocument } from "./fixtures/field-power-app.js";
 import { fieldPowerTemplate } from "./fixtures/field-power-template.js";
 import { createBuildPrompt, type ExtendedBuildPromptTarget } from "./prompt/build-prompt.js";
-import { createLocalStorageProjectRepository, summarizeProjects } from "./storage/project-repository.js";
-import { importWorkspaceBackup, serializeWorkspaceBackup } from "./storage/workspace-backup.js";
+import { createLocalStorageProjectRepository, createProjectWorkspace, summarizeProjects } from "./storage/project-repository.js";
+import {
+  createAutosaveSnapshot,
+  listAutosaveSnapshots,
+  restoreAutosaveSnapshot,
+  type AutosaveSnapshotSummary,
+} from "./storage/autosave-snapshots.js";
+import {
+  mergeWorkspaceBackup,
+  parseWorkspaceBackup,
+  replaceWorkspaceFromBackup,
+  serializeWorkspaceBackup,
+} from "./storage/workspace-backup.js";
 import { downloadTextFile } from "./export/export-content.js";
 
 const DEFAULT_PRD = fieldPowerAppSourceDocument.content;
+const AI_PROVIDER_OPTIONS = Object.values(AI_PROVIDER_REGISTRY);
+
+type PendingBackupImport = {
+  exportedAt: string;
+  workspace: ProjectWorkspace;
+  validation: ReturnType<typeof validateWorkspace>;
+};
+
+type PendingSnapshotRestore = {
+  snapshotId: string;
+  createdAt: string;
+  workspace: ProjectWorkspace;
+  validation: ReturnType<typeof validateWorkspace>;
+};
+
+type AnalysisRunState =
+  | { status: "idle" }
+  | { status: "running"; provider: AiProviderName }
+  | { status: "success"; message: string }
+  | { status: "validation-failed"; message: string }
+  | { status: "provider-error"; message: string };
 
 export default function App() {
   const repository = useMemo(() => createLocalStorageProjectRepository(), []);
@@ -39,24 +72,44 @@ export default function App() {
   const [sourceText, setSourceText] = useState(workspace?.sourceDocuments.at(0)?.content ?? DEFAULT_PRD);
   const [sourceType, setSourceType] = useState<SourceDocument["sourceType"]>(workspace?.sourceDocuments.at(0)?.sourceType ?? "text");
   const [sourceImportMessage, setSourceImportMessage] = useState<string | null>(null);
+  const [sourceImportSeverity, setSourceImportSeverity] = useState<"info" | "error">("info");
+  const [lastImportedAt, setLastImportedAt] = useState<string | null>(null);
   const [activeExport, setActiveExport] = useState<ExportType>("markdown");
   const [promptTarget, setPromptTarget] = useState<ExtendedBuildPromptTarget>("codex");
   const [selectedBuildStep, setSelectedBuildStep] = useState("");
   const [saveError, setSaveError] = useState<string | null>(initialLoad.error ?? null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(initialLoad.activeWorkspace ? "로컬 프로젝트를 불러왔습니다." : null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [templateMessage, setTemplateMessage] = useState<string | null>(null);
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(() => loadAiProviderConfig());
   const [aiSettingsMessage, setAiSettingsMessage] = useState<string | null>(null);
+  const [analysisRunState, setAnalysisRunState] = useState<AnalysisRunState>({ status: "idle" });
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(null);
+  const [snapshotSummaries, setSnapshotSummaries] = useState<AutosaveSnapshotSummary[]>(() =>
+    workspace ? listAutosaveSnapshots(window.localStorage, workspace.project.id) : [],
+  );
+  const [pendingSnapshotRestore, setPendingSnapshotRestore] = useState<PendingSnapshotRestore | null>(null);
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
+  const [statusHistory, setStatusHistory] = useState<ReviewStatusDecisionGroup[]>([]);
+  const [focusedValidationIssue, setFocusedValidationIssue] = useState<ValidationIssue | null>(null);
 
   useEffect(() => {
     if (!workspace) return;
     try {
       const result = repository.saveWorkspace(workspace);
+      const snapshotResult = createAutosaveSnapshot(window.localStorage, workspace);
+      setSnapshotSummaries(listAutosaveSnapshots(window.localStorage, workspace.project.id));
       setProjectSummaries(summarizeProjects(result.collection));
-      setSaveError(null);
+      setSaveError(result.error ?? null);
+      setSaveStatus(result.error ? null : "로컬 저장됨");
+      if (!snapshotResult.ok) {
+        setBackupMessage(snapshotResult.error);
+      }
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "저장할 수 없습니다.");
+      setSaveStatus(null);
     }
   }, [repository, workspace]);
 
@@ -82,10 +135,14 @@ export default function App() {
       return;
     }
     if (route.name !== "projectSection") return;
-    if (workspace?.project.id !== route.projectId) openProject(route.projectId);
+    if (workspace?.project.id !== route.projectId) openProject(route.projectId, route.section);
     const sectionId = sectionIdForRoute(route.section);
     window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ block: "start" }));
   }, [route, workspace?.project.id]);
+
+  useEffect(() => {
+    setStatusHistory([]);
+  }, [workspace?.project.id]);
 
   const confirmedCounts = workspace ? countConfirmed(workspace.objects) : 0;
   const totalCounts = workspace ? countAll(workspace.objects) : 0;
@@ -95,6 +152,8 @@ export default function App() {
       ...(selectedBuildStep ? { buildStepTempId: selectedBuildStep } : {}),
     })
     : "";
+  const validationReport = workspace ? validateWorkspace(workspace) : null;
+  const validationIssues = validationReport ? [...validationReport.errors, ...validationReport.warnings] : [];
   const latestSourceDocument = workspace ? getLatestSourceDocument(workspace) : undefined;
   const aiSettingsPanel = (
     <section className="panel" id="settings-ai">
@@ -106,12 +165,10 @@ export default function App() {
       <div className="form-grid settings-grid">
         <label>
           AI 제공자
-          <select value={aiConfig.provider} onChange={(event) => updateAiConfig({ provider: event.target.value as AiProviderName })}>
-            <option value="mock">Mock</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="openrouter">OpenRouter</option>
+          <select value={aiConfig.provider} onChange={(event) => updateAiProvider(event.target.value as AiProviderName)}>
+            {AI_PROVIDER_OPTIONS.map((provider) => (
+              <option key={provider.provider} value={provider.provider}>{provider.label}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -128,6 +185,7 @@ export default function App() {
           />
         </label>
       </div>
+      <p className="muted export-file-name">{getAiProviderMetadata(aiConfig.provider).description}</p>
       <div className="button-row">
         <button type="button" onClick={saveAiSettings}>설정 저장</button>
         <button className="secondary" type="button" onClick={() => setAiConfig(DEFAULT_AI_PROVIDER_CONFIG)}>Mock으로 되돌리기</button>
@@ -138,116 +196,117 @@ export default function App() {
   );
 
   function createProject() {
+    const validationError = validateProjectForm();
+    if (validationError) {
+      setFormError(validationError);
+      setSaveStatus(null);
+      return;
+    }
     const now = new Date().toISOString();
-    const projectId = `project_${crypto.randomUUID()}`;
-    const nextWorkspace: ProjectWorkspace = {
-      project: {
-        id: projectId,
-        name: projectName.trim() || "새 앱 아이디어",
-        description: "AI가 만들기 전에 구조를 먼저 확인하는 로컬 프로젝트",
-        appTypes: [],
-        createdAt: now,
-        updatedAt: now,
-      },
-      sourceDocuments: [
-        {
-          id: `src_${crypto.randomUUID()}`,
-          projectId,
-          title: "아이디어 / PRD",
-          content: sourceText.trim(),
-          sourceType,
-          version: 1,
-          createdAt: now,
-        },
-      ],
-      objects: createEmptySuggestionSet(),
-      buildPlanSuggestions: [],
-      updatedAt: now,
-    };
+    const nextWorkspace = createProjectWorkspace({
+      name: projectName,
+      sourceText,
+      sourceType,
+      now,
+    });
+    const result = repository.saveWorkspace(nextWorkspace);
+    if (result.error) {
+      setFormError(result.error);
+      setSaveError(result.error);
+      setSaveStatus(null);
+      return;
+    }
+    setFormError(null);
     setWorkspace(nextWorkspace);
-    window.location.hash = projectRoute(projectId, "source");
+    setProjectSummaries(summarizeProjects(result.collection));
+    setSaveError(null);
+    setSaveStatus("로컬 저장됨");
+    navigateTo(projectRoute(nextWorkspace.project.id, "review"));
   }
 
-  function runMockAnalysis() {
+  async function runAnalysis() {
+    const validationError = validateProjectForm();
+    if (validationError) {
+      setFormError(validationError);
+      setSaveStatus(null);
+      setAnalysisRunState({ status: "validation-failed", message: validationError });
+      return;
+    }
     const now = new Date().toISOString();
     const baseWorkspace = workspace ?? createWorkspaceFromForm(now);
-    const versionedWorkspace = syncSourceDocument(baseWorkspace, now);
+    const versionedWorkspace = syncSourceDocument(updateWorkspaceFromForm(baseWorkspace, now), now);
     const sourceDocument = getLatestSourceDocument(versionedWorkspace);
     if (!sourceDocument) return;
-    const analysis = mockAiProviderAdapter.analyze({ sourceDocument });
-    const validation = validateAiAnalysisResult(analysis);
-    if (!validation.ok) {
-      setSaveError(`AI 분석 결과 검증 실패: ${validation.errors.join(" / ")}`);
+    setAnalysisRunState({ status: "running", provider: aiConfig.provider });
+    const result = await runWorkspaceAnalysis({
+      aiConfig,
+      workspace: versionedWorkspace,
+      sourceDocument,
+      now,
+    });
+    if (!result.ok) {
+      setAnalysisRunState({ status: result.status, message: result.message });
       return;
     }
 
-    const converted = convertAiAnalysisToXrayObjects({
-      project: versionedWorkspace.project,
-      sourceDocument,
-      analysis: validation.result,
-      now,
-    });
-    const mergeImpact = summarizeSuggestionMergeImpact(versionedWorkspace.objects, converted);
-    const mergedObjects = mergeAiSuggestionsPreservingConfirmed(versionedWorkspace.objects, converted);
-    const structureDiff = compareSuggestionSets(versionedWorkspace.objects, mergedObjects);
-    const lastAnalysis = {
-      runId: `analysis_${crypto.randomUUID()}`,
-      sourceDocumentId: sourceDocument.id,
-      sourceVersion: sourceDocument.version,
-      analyzedAt: now,
-      ...mergeImpact,
-    };
-
-    setWorkspace({
-      ...versionedWorkspace,
-      project: {
-        ...versionedWorkspace.project,
-        appTypes: validation.result.summary.appTypes,
-        updatedAt: now,
-      },
-      objects: mergedObjects,
-      buildPlanSuggestions: converted.buildPlanSuggestions,
-      lastAnalysis,
-      analysisHistory: [lastAnalysis, ...(versionedWorkspace.analysisHistory ?? [])].slice(0, 10),
-      lastStructureDiff: structureDiff,
-      updatedAt: now,
-    });
+    const nextWorkspace = result.workspace;
+    if (commitWorkspace(nextWorkspace, "Mock 분석 완료")) {
+      setAnalysisRunState({ status: "success", message: result.message });
+      navigateTo(projectRoute(nextWorkspace.project.id, "review"));
+    }
   }
 
   function createWorkspaceFromForm(now: string): ProjectWorkspace {
-    const projectId = `project_${crypto.randomUUID()}`;
-    return {
-      project: {
-        id: projectId,
-        name: projectName.trim() || "새 앱 아이디어",
-        description: "AI가 만들기 전에 구조를 먼저 확인하는 로컬 프로젝트",
-        appTypes: [],
-        createdAt: now,
-        updatedAt: now,
-      },
-      sourceDocuments: [
-        {
-          id: `src_${crypto.randomUUID()}`,
-          projectId,
-          title: "아이디어 / PRD",
-          content: sourceText.trim(),
-          sourceType,
-          version: 1,
-          createdAt: now,
-        },
-      ],
-      objects: createEmptySuggestionSet(),
-      buildPlanSuggestions: [],
-      updatedAt: now,
-    };
+    return createProjectWorkspace({ name: projectName, sourceText, sourceType, now });
   }
 
   function updateObjectStatus(bucket: ObjectBucket, object: XrayObject, status: SuggestionStatus) {
-    replaceObject(bucket, object.id, updateXrayObjectStatus(object, status));
+    updateObjectsStatus(bucket, [object], status);
+  }
+
+  function updateObjectsStatus(bucket: ObjectBucket, objectsToUpdate: XrayObject[], status: SuggestionStatus) {
+    const now = new Date().toISOString();
+    setWorkspace((current) => {
+      if (!current || objectsToUpdate.length === 0) return current;
+      const result = applyStatusDecisionToSuggestionSet(
+        current.objects,
+        bucket,
+        objectsToUpdate.map((object) => object.id),
+        status,
+        now,
+      );
+      if (!result.decisionGroup) return current;
+      const decisionGroup = result.decisionGroup;
+      setStatusHistory((history) => [...history, decisionGroup].slice(-25));
+      return {
+        ...current,
+        objects: result.objects,
+        updatedAt: now,
+      };
+    });
   }
 
   function editObject(bucket: ObjectBucket, object: EditableXrayObject, patch: Partial<EditableXrayObject>) {
-    replaceObject(bucket, object.id, editXrayObject(object, patch as never));
+    const now = new Date().toISOString();
+    const nextObject = editXrayObject(object, patch as never, now);
+    replaceObjectWithDecision(
+      bucket,
+      object.id,
+      nextObject,
+      {
+        id: `decision_${now}`,
+        decidedAt: now,
+        decisions: [
+          {
+            bucket,
+            objectId: object.id,
+            previousObject: object,
+            nextStatus: "edited",
+          },
+        ],
+      },
+      now,
+    );
   }
 
   function toggleIssuePrompt(issue: EditableXrayObject) {
@@ -259,17 +318,82 @@ export default function App() {
     );
   }
 
+  function jumpToValidationIssue(issue: ValidationIssue) {
+    if (!workspace) return;
+    setFocusedValidationIssue(issue);
+    navigateTo(getValidationReviewRoute(issue, workspace.project.id));
+    const elementId = getValidationIssueElementId(issue);
+    if (elementId) {
+      window.requestAnimationFrame(() => document.getElementById(elementId)?.scrollIntoView({ block: "center" }));
+    }
+  }
+
+  function repairValidationIssue(issue: ValidationIssue) {
+    if (!workspace) return;
+    const target = getValidationIssueTarget(issue);
+    if (!target) return;
+    const object = findWorkspaceObject(workspace, target.bucket, target.id);
+    if (!object) return;
+
+    if (issue.suggestedAction === "remove_broken_relation") {
+      updateObjectsStatus(target.bucket, [object], "rejected");
+      jumpToValidationIssue(issue);
+      return;
+    }
+    if (issue.suggestedAction === "mark_duplicate_deferred") {
+      updateObjectsStatus(target.bucket, [object], "deferred");
+      jumpToValidationIssue(issue);
+      return;
+    }
+    if (issue.suggestedAction === "exclude_issue_from_prompt" && target.bucket === "issues" && "issueType" in object) {
+      replaceObject(
+        "issues",
+        object.id,
+        editXrayObject(object, { includeInPrompt: false }),
+      );
+      jumpToValidationIssue(issue);
+    }
+  }
+
   function replaceObject(bucket: ObjectBucket, id: string, nextObject: XrayObject) {
+    replaceObjectWithDecision(bucket, id, nextObject);
+  }
+
+  function replaceObjectWithDecision(
+    bucket: ObjectBucket,
+    id: string,
+    nextObject: XrayObject,
+    decisionGroup?: ReviewStatusDecisionGroup,
+    now = new Date().toISOString(),
+  ) {
     setWorkspace((current) => {
       if (!current) return current;
       const collection = current.objects[bucket] as XrayObject[];
+      if (decisionGroup) {
+        setStatusHistory((history) => [...history, decisionGroup].slice(-25));
+      }
       return {
         ...current,
         objects: {
           ...current.objects,
           [bucket]: collection.map((object) => (object.id === id ? nextObject : object)),
         },
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
+      };
+    });
+  }
+
+  function undoStatusDecision() {
+    const now = new Date().toISOString();
+    setWorkspace((current) => {
+      if (!current) return current;
+      const result = undoLatestStatusDecision(current.objects, statusHistory);
+      if (result.restoredCount === 0) return current;
+      setStatusHistory(result.history);
+      return {
+        ...current,
+        objects: result.objects,
+        updatedAt: now,
       };
     });
   }
@@ -286,31 +410,91 @@ export default function App() {
       setProjectName("현장 전력설비 관리 앱");
       setSourceText(DEFAULT_PRD);
     }
+    navigateTo(projectOrListRoute(result.activeWorkspace?.project.id, "review"));
   }
 
-  function openProject(projectId: string) {
+  function openProject(projectId: string, section: ProjectRouteSection = "review") {
     const result = repository.setActiveProject(projectId);
     setWorkspace(result.workspace);
     setSaveError(result.error ?? null);
+    setSaveStatus(result.error ? null : "로컬 프로젝트를 열었습니다.");
+    setPendingDeleteProjectId(null);
+    if (!result.workspace || result.workspace.project.id !== projectId) {
+      navigateTo(projectOrListRoute(result.workspace?.project.id, "review"));
+      return;
+    }
+    navigateTo(projectRoute(projectId, section));
   }
 
   function deleteProject(projectId: string) {
-    if (!window.confirm("이 로컬 프로젝트를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+    if (pendingDeleteProjectId !== projectId) {
+      setPendingDeleteProjectId(projectId);
+      return;
+    }
     const result = repository.deleteWorkspace(projectId);
     setWorkspace(result.activeWorkspace);
     setProjectSummaries(summarizeProjects(result.collection));
+    setPendingDeleteProjectId(null);
+    setSaveError(result.error ?? null);
+    setSaveStatus("로컬 프로젝트를 삭제했습니다.");
     if (!result.activeWorkspace) {
       setProjectName("현장 전력설비 관리 앱");
       setSourceText(DEFAULT_PRD);
     }
+    navigateTo(projectOrListRoute(result.activeWorkspace?.project.id, "review"));
+  }
+
+  function navigateTo(hash: string) {
+    window.location.hash = hash;
+    setRoute(parseAppRoute(hash));
   }
 
   function saveSourceVersion() {
+    const validationError = validateProjectForm();
+    if (validationError) {
+      setFormError(validationError);
+      setSaveStatus(null);
+      return;
+    }
     const now = new Date().toISOString();
-    setWorkspace((current) => {
-      const baseWorkspace = current ?? createWorkspaceFromForm(now);
-      return syncSourceDocument(baseWorkspace, now);
-    });
+    const baseWorkspace = workspace ?? createWorkspaceFromForm(now);
+    const nextWorkspace = syncSourceDocument(updateWorkspaceFromForm(baseWorkspace, now), now);
+    commitWorkspace(nextWorkspace, "로컬 저장됨");
+  }
+
+  function updateSourceText(value: string) {
+    setSourceText(value);
+    setSourceType("text");
+    setSourceImportMessage(null);
+    setLastImportedAt(null);
+  }
+
+  function updateWorkspaceFromForm(baseWorkspace: ProjectWorkspace, now: string): ProjectWorkspace {
+    return {
+      ...baseWorkspace,
+      project: {
+        ...baseWorkspace.project,
+        name: projectName.trim(),
+        updatedAt: now,
+      },
+      updatedAt: now,
+    };
+  }
+
+  function commitWorkspace(nextWorkspace: ProjectWorkspace, successMessage: string): boolean {
+    const result = repository.saveWorkspace(nextWorkspace);
+    if (result.error) {
+      setFormError(result.error);
+      setSaveError(result.error);
+      setSaveStatus(null);
+      return false;
+    }
+    setFormError(null);
+    setWorkspace(nextWorkspace);
+    setProjectSummaries(summarizeProjects(result.collection));
+    setSaveError(null);
+    setSaveStatus(successMessage);
+    return true;
   }
 
   function syncSourceDocument(baseWorkspace: ProjectWorkspace, now: string): ProjectWorkspace {
@@ -327,11 +511,14 @@ export default function App() {
     const result = classifySourceFile(file.name, content);
     if (!result.ok) {
       setSourceImportMessage(result.error);
+      setSourceImportSeverity("error");
       return;
     }
     setSourceText(result.content);
     setSourceType(result.sourceType);
     setSourceImportMessage(`${result.fileName} 원문을 불러왔습니다. 저장하면 새 버전으로 기록됩니다.`);
+    setSourceImportSeverity("info");
+    setLastImportedAt(new Date().toISOString());
   }
 
   function applyBuiltInTemplate() {
@@ -362,6 +549,19 @@ export default function App() {
     setAiConfig((current) => ({ ...current, ...patch }));
   }
 
+  function updateAiProvider(provider: AiProviderName) {
+    const metadata = getAiProviderMetadata(provider);
+    setAiConfig((current) => ({
+      ...current,
+      provider,
+      modelName: metadata.defaultModel,
+      apiKey: undefined,
+      apiKeyPresent: false,
+      lastValidatedAt: undefined,
+    }));
+    setAiSettingsMessage(null);
+  }
+
   function downloadWorkspaceBackup() {
     if (!workspace) return;
     const fileName = `app-xray-workspace-${workspace.project.name.trim().replace(/[^a-zA-Z0-9가-힣]+/g, "-") || "project"}.json`;
@@ -371,17 +571,100 @@ export default function App() {
   async function importWorkspaceFile(file: File | undefined) {
     if (!file) return;
     const raw = await file.text();
-    const result = importWorkspaceBackup(raw, workspace);
+    const parsed = parseWorkspaceBackup(raw);
+    if (!parsed.ok) {
+      setPendingBackupImport(null);
+      setBackupMessage(parsed.error);
+      return;
+    }
+    setPendingBackupImport({
+      exportedAt: parsed.exportedAt,
+      workspace: parsed.workspace,
+      validation: parsed.validation,
+    });
+    setBackupMessage("백업 내용을 확인했습니다. 병합, 교체, 취소 중 하나를 선택하세요.");
+  }
+
+  function applyBackupMerge() {
+    if (!pendingBackupImport) return;
+    const now = new Date().toISOString();
+    const nextWorkspace = workspace
+      ? mergeWorkspaceBackup(workspace, pendingBackupImport.workspace, now)
+      : replaceWorkspaceFromBackup(pendingBackupImport.workspace, now);
+    if (commitWorkspace(nextWorkspace, "workspace 백업을 병합했습니다.")) {
+      setPendingBackupImport(null);
+      setBackupMessage(
+        validateWorkspace(nextWorkspace).isExportSafe
+          ? "workspace 백업을 병합했습니다."
+          : `workspace를 병합했지만 내보내기 전에 고칠 것 ${validateWorkspace(nextWorkspace).errors.length}개가 있습니다.`,
+      );
+    }
+  }
+
+  function applyBackupReplace() {
+    if (!pendingBackupImport) return;
+    const nextWorkspace = replaceWorkspaceFromBackup(pendingBackupImport.workspace, new Date().toISOString());
+    if (commitWorkspace(nextWorkspace, "workspace 백업으로 교체했습니다.")) {
+      setPendingBackupImport(null);
+      setBackupMessage(
+        validateWorkspace(nextWorkspace).isExportSafe
+          ? "workspace 백업으로 교체했습니다."
+          : `workspace로 교체했지만 내보내기 전에 고칠 것 ${validateWorkspace(nextWorkspace).errors.length}개가 있습니다.`,
+      );
+      navigateTo(projectRoute(nextWorkspace.project.id, "review"));
+    }
+  }
+
+  function cancelBackupImport() {
+    setPendingBackupImport(null);
+    setBackupMessage("workspace 백업 불러오기를 취소했습니다.");
+  }
+
+  function previewAutosaveSnapshot(snapshotId: string) {
+    const result = restoreAutosaveSnapshot(window.localStorage, snapshotId);
     if (!result.ok) {
+      setPendingSnapshotRestore(null);
       setBackupMessage(result.error);
       return;
     }
-    setWorkspace(result.workspace);
+    setPendingSnapshotRestore({
+      snapshotId,
+      createdAt: result.snapshot.createdAt,
+      workspace: result.workspace,
+      validation: result.validation,
+    });
     setBackupMessage(
       result.validation.isExportSafe
-        ? "workspace 백업을 불러왔습니다."
-        : `workspace를 불러왔지만 내보내기 전에 고칠 것 ${result.validation.errors.length}개가 있습니다.`,
+        ? "자동 저장 기록을 미리 봅니다. 복원하려면 확인 버튼을 누르세요."
+        : `자동 저장 기록에 내보내기 전에 고칠 것 ${result.validation.errors.length}개가 있습니다.`,
     );
+  }
+
+  function applyAutosaveSnapshot() {
+    if (!pendingSnapshotRestore) return;
+    const nextWorkspace = {
+      ...pendingSnapshotRestore.workspace,
+      updatedAt: new Date().toISOString(),
+    };
+    if (commitWorkspace(nextWorkspace, "자동 저장 기록으로 복원했습니다.")) {
+      setPendingSnapshotRestore(null);
+      setBackupMessage("자동 저장 기록으로 복원했습니다.");
+      navigateTo(projectRoute(nextWorkspace.project.id, "review"));
+    }
+  }
+
+  function validateProjectForm(): string | null {
+    const errors: string[] = [];
+    if (!projectName.trim()) errors.push("프로젝트 이름을 입력하세요.");
+    if (!sourceText.trim()) errors.push("아이디어나 PRD 원문을 입력하세요.");
+    const duplicateProject = projectSummaries.find(
+      (project) =>
+        project.id !== workspace?.project.id &&
+        project.name.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR") ===
+          projectName.trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR"),
+    );
+    if (duplicateProject) errors.push("같은 이름의 로컬 프로젝트가 이미 있습니다.");
+    return errors.length ? errors.join(" ") : null;
   }
 
   return (
@@ -412,9 +695,14 @@ export default function App() {
           {projectSummaries.length === 0 ? <small>아직 저장된 프로젝트가 없습니다.</small> : null}
           {projectSummaries.map((project) => (
             <div className={`project-item ${workspace?.project.id === project.id ? "active" : ""}`} key={project.id}>
-              <button type="button" onClick={() => { openProject(project.id); window.location.hash = projectRoute(project.id, "source"); }}>{project.name}</button>
-              <button className="secondary icon-button" type="button" aria-label={`${project.name} 삭제`} onClick={() => deleteProject(project.id)}>
-                ×
+              <button type="button" onClick={() => openProject(project.id, "review")}>{project.name}</button>
+              <button
+                className={`secondary icon-button ${pendingDeleteProjectId === project.id ? "pending-delete" : ""}`}
+                type="button"
+                aria-label={`${project.name} 삭제`}
+                onClick={() => deleteProject(project.id)}
+              >
+                {pendingDeleteProjectId === project.id ? "삭제 확인" : "×"}
               </button>
             </div>
           ))}
@@ -434,11 +722,19 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <button className="secondary" type="button" onClick={resetWorkspace}>현재 프로젝트 삭제</button>
-            <button type="button" onClick={runMockAnalysis}>{workspace ? "Mock 재분석" : "Mock 분석하기"}</button>
+            <button type="button" disabled={analysisRunState.status === "running"} onClick={() => void runAnalysis()}>
+              {analysisButtonLabel(aiConfig.provider, Boolean(workspace), analysisRunState.status === "running")}
+            </button>
           </div>
         </header>
 
         {saveError ? <p className="notice error">로컬 저장 실패: {saveError}</p> : null}
+        {saveStatus ? <p className="notice info" role="status">{saveStatus}</p> : null}
+        {analysisRunState.status === "running" ? <p className="notice info" role="status">AI 분석을 실행 중입니다.</p> : null}
+        {analysisRunState.status === "success" ? <p className="notice info" role="status">{analysisRunState.message}</p> : null}
+        {analysisRunState.status === "validation-failed" || analysisRunState.status === "provider-error" ? (
+          <p className="notice error">{analysisRunState.message}</p>
+        ) : null}
 
         <section className="panel intake" id="new-project">
           <div className="section-heading">
@@ -456,33 +752,47 @@ export default function App() {
                 <option value="text">일반 텍스트</option>
                 <option value="markdown">Markdown</option>
                 <option value="txt">TXT 파일</option>
+                <option value="csv">CSV 파일</option>
+                <option value="json">JSON 파일</option>
                 <option value="pdf">PDF 지원 예정</option>
               </select>
             </label>
             <label>
               아이디어 / PRD
-              <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} rows={7} />
+              <textarea value={sourceText} onChange={(event) => updateSourceText(event.target.value)} rows={7} />
             </label>
             <label>
-              Markdown/TXT 파일 가져오기
-              <input accept=".md,.markdown,.txt,.pdf" type="file" onChange={(event) => void importSourceFile(event.target.files?.[0])} />
+              원문 파일 가져오기
+              <input
+                accept=".md,.markdown,.txt,.csv,.json,.pdf"
+                aria-label="원문 파일 가져오기"
+                type="file"
+                onChange={(event) => void importSourceFile(event.target.files?.[0])}
+              />
             </label>
           </div>
-          {sourceImportMessage ? <p className="notice info">{sourceImportMessage}</p> : null}
+          {formError ? <p className="notice error">{formError}</p> : null}
+          {sourceImportMessage ? <p className={`notice ${sourceImportSeverity}`}>{sourceImportMessage}</p> : null}
           <div className="button-row">
             <button type="button" onClick={createProject}>프로젝트 저장</button>
-            {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>원문 새 버전 저장</button> : null}
-            <button className="secondary" type="button" onClick={runMockAnalysis}>저장하고 Mock 분석</button>
+            {workspace ? <button className="secondary" type="button" onClick={saveSourceVersion}>현재 변경 저장</button> : null}
+            <button className="secondary" type="button" disabled={analysisRunState.status === "running"} onClick={() => void runAnalysis()}>
+              {aiConfig.provider === "mock" ? "저장하고 Mock 분석" : `저장하고 ${getAiProviderMetadata(aiConfig.provider).label} 분석`}
+            </button>
           </div>
           <div className="source-meta">
+            <span>원문 종류: {sourceTypeLabel(sourceType)}</span>
+            <span>원문 버전: {workspace?.sourceDocuments.length ?? 0}개</span>
             <span>현재 원문 버전: v{latestSourceDocument?.version ?? 0}</span>
             {latestSourceDocument ? <span>저장 시각: {formatDateTime(latestSourceDocument.createdAt)}</span> : null}
+            {lastImportedAt ? <span>최근 가져오기: {formatDateTime(lastImportedAt)}</span> : null}
             {workspace?.lastAnalysis ? (
               <>
                 <span>최근 분석: v{workspace.lastAnalysis.sourceVersion}</span>
                 <span>새 제안 {workspace.lastAnalysis.addedSuggestedCount}</span>
                 <span>갱신 제안 {workspace.lastAnalysis.refreshedSuggestedCount}</span>
                 <span>보존 확정 {workspace.lastAnalysis.preservedConfirmedCount}</span>
+                <span>보존 판정 {workspace.lastAnalysis.preservedReviewDecisionCount ?? 0}</span>
               </>
             ) : null}
           </div>
@@ -503,7 +813,14 @@ export default function App() {
           <>
             <ReviewPanel
               analysisChanges={workspace.lastAnalysis?.changes}
+              analysisSummary={workspace.lastAnalysis}
+              canUndoStatus={statusHistory.length > 0}
+              focusedValidationIssue={focusedValidationIssue}
               objects={workspace.objects}
+              structureDiff={workspace.lastStructureDiff}
+              validationIssues={validationIssues}
+              onBulkStatus={updateObjectsStatus}
+              onUndoStatus={undoStatusDecision}
               onStatus={updateObjectStatus}
               onEdit={editObject}
             />
@@ -581,7 +898,13 @@ export default function App() {
               <BuildPlanPreview steps={workspace.buildPlanSuggestions} />
             </section>
 
-            <ExportPanel activeExport={activeExport} onExportChange={setActiveExport} workspace={workspace} />
+            <ExportPanel
+              activeExport={activeExport}
+              onExportChange={setActiveExport}
+              onJumpToIssue={jumpToValidationIssue}
+              onRepairIssue={repairValidationIssue}
+              workspace={workspace}
+            />
 
             <section className="panel" id="backup">
               <div className="section-heading">
@@ -597,6 +920,53 @@ export default function App() {
               </div>
               <p className="muted export-file-name">SQLite/native file 저장은 desktop packaging 단계에서 붙일 수 있도록 repository 경계를 유지합니다.</p>
               {backupMessage ? <p className="notice info">{backupMessage}</p> : null}
+              {pendingBackupImport ? (
+                <div className="recovery-preview" aria-label="백업 불러오기 미리보기">
+                  <div>
+                    <strong>{pendingBackupImport.workspace.project.name}</strong>
+                    <p>내보낸 시각: {pendingBackupImport.exportedAt} · {formatDateTime(pendingBackupImport.exportedAt)}</p>
+                    <p>{validationStatusLabel(pendingBackupImport.validation)}</p>
+                  </div>
+                  <div className="button-row">
+                    <button type="button" onClick={applyBackupMerge}>백업 병합</button>
+                    <button className="danger" type="button" onClick={applyBackupReplace}>백업으로 교체</button>
+                    <button className="secondary" type="button" onClick={cancelBackupImport}>취소</button>
+                  </div>
+                </div>
+              ) : null}
+              {snapshotSummaries.length ? (
+                <div className="recovery-list" aria-label="자동 저장 기록">
+                  {snapshotSummaries.map((snapshot) => (
+                    <article className="recovery-preview" key={snapshot.id}>
+                      <div>
+                        <strong>{snapshot.projectName}</strong>
+                        <p>{snapshot.createdAt} · {formatDateTime(snapshot.createdAt)}</p>
+                        <p>{validationStatusLabel(snapshot.validation)}</p>
+                      </div>
+                      <button
+                        aria-label={`${snapshot.projectName} ${snapshot.createdAt} 복원 미리보기`}
+                        className="secondary"
+                        type="button"
+                        onClick={() => previewAutosaveSnapshot(snapshot.id)}
+                      >
+                        복원 미리보기
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted export-file-name">아직 자동 저장 기록이 없습니다.</p>
+              )}
+              {pendingSnapshotRestore ? (
+                <div className="recovery-preview" aria-label="자동 저장 복원 미리보기">
+                  <div>
+                    <strong>{pendingSnapshotRestore.workspace.project.name}</strong>
+                    <p>저장 시각: {pendingSnapshotRestore.createdAt} · {formatDateTime(pendingSnapshotRestore.createdAt)}</p>
+                    <p>{validationStatusLabel(pendingSnapshotRestore.validation)}</p>
+                  </div>
+                  <button type="button" onClick={applyAutosaveSnapshot}>이 기록으로 복원</button>
+                </div>
+              ) : null}
             </section>
 
             {aiSettingsPanel}
@@ -606,7 +976,7 @@ export default function App() {
         ) : (
           <section className="empty-state">
             <h2>아직 저장된 구조가 없습니다.</h2>
-            <p>아이디어를 저장하고 Mock 분석을 실행하면 화면, 정보 구조, 빠진 것이 suggested 상태로 나타납니다.</p>
+            <p>{saveError ? "새 프로젝트로 다시 시작할 수 있습니다." : "새 프로젝트를 만들어 원문을 저장하세요. Mock 분석을 실행하면 화면, 정보 구조, 빠진 것이 나타납니다."}</p>
           </section>
         )}
       </section>
@@ -683,11 +1053,39 @@ function countConfirmed(objects: XraySuggestionSet): number {
   );
 }
 
+function findWorkspaceObject(workspace: ProjectWorkspace, bucket: ObjectBucket, id: string): XrayObject | undefined {
+  return (workspace.objects[bucket] as XrayObject[]).find((object) => object.id === id);
+}
+
+function validationStatusLabel(validation: ReturnType<typeof validateWorkspace>): string {
+  if (validation.isExportSafe) return `내보내기 가능 · 확인 필요 ${validation.warnings.length}개`;
+  return `내보내기 전에 고칠 것 ${validation.errors.length}개 · 확인 필요 ${validation.warnings.length}개`;
+}
+
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function sourceTypeLabel(sourceType: SourceDocument["sourceType"]): string {
+  return {
+    text: "일반 텍스트",
+    markdown: "Markdown",
+    txt: "TXT",
+    csv: "CSV",
+    json: "JSON",
+    pdf: "PDF 지원 예정",
+    imported: "가져온 원문",
+  }[sourceType];
+}
+
+function analysisButtonLabel(provider: AiProviderName, hasWorkspace: boolean, isRunning: boolean): string {
+  if (isRunning) return "AI 분석 중";
+  if (provider === "mock") return hasWorkspace ? "Mock 재분석" : "Mock 분석하기";
+  const providerLabel = getAiProviderMetadata(provider).label;
+  return hasWorkspace ? `${providerLabel} 재분석` : `${providerLabel} 분석하기`;
 }
 
 function sectionIdForRoute(section: string): string {

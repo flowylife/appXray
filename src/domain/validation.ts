@@ -3,12 +3,20 @@ import type { BaseXrayObject, DataObject, Screen, XraySuggestionSet } from "./ty
 import type { ProjectWorkspace, XraySuggestionBucket } from "./workspace.js";
 
 export type ValidationSeverity = "error" | "warning";
+export type ValidationSuggestedAction =
+  | "review_target"
+  | "remove_broken_relation"
+  | "mark_duplicate_deferred"
+  | "exclude_issue_from_prompt";
 
 export type ValidationIssue = {
   id: string;
   severity: ValidationSeverity;
   code: string;
   message: string;
+  targetId?: string;
+  targetBucket?: XraySuggestionBucket;
+  suggestedAction?: ValidationSuggestedAction;
   relatedObjectId?: string;
   relatedBucket?: XraySuggestionBucket;
 };
@@ -22,6 +30,7 @@ export type ValidationReport = {
 export function validateWorkspace(workspace: ProjectWorkspace): ValidationReport {
   const issues: ValidationIssue[] = [
     ...validateScreenNames(workspace.objects),
+    ...validateDataObjectNames(workspace.objects),
     ...validateDuplicateNames("screens", getDefaultExportableObjects(workspace.objects.screens), "화면 이름이 겹칩니다."),
     ...validateDuplicateNames(
       "dataObjects",
@@ -29,6 +38,7 @@ export function validateWorkspace(workspace: ProjectWorkspace): ValidationReport
       "앱이 저장할 정보 이름이 겹칩니다.",
     ),
     ...validateConfirmedDataObjectsHaveFields(workspace.objects),
+    ...validateConfirmedDataFieldsHaveDataObjects(workspace.objects),
     ...validateDataRelations(workspace.objects),
     ...validateConfirmedScreensHaveFeatures(workspace.objects),
     ...validateConfirmedFlows(workspace.objects),
@@ -56,6 +66,25 @@ function validateScreenNames(objects: XraySuggestionSet): ValidationIssue[] {
       message: "내보내기 전에 고칠 것: 이름이 비어 있는 화면이 있습니다.",
       relatedObjectId: screen.id,
       relatedBucket: "screens",
+      targetId: screen.id,
+      targetBucket: "screens",
+      suggestedAction: "review_target",
+    }));
+}
+
+function validateDataObjectNames(objects: XraySuggestionSet): ValidationIssue[] {
+  return getDefaultExportableObjects(objects.dataObjects)
+    .filter((object) => normalizedName(object) === "")
+    .map((object) => ({
+      id: `empty-data-object-name-${object.id}`,
+      severity: "error",
+      code: "empty_object_name",
+      message: "내보내기 전에 고칠 것: 이름이 비어 있는 앱이 저장할 정보가 있습니다.",
+      relatedObjectId: object.id,
+      relatedBucket: "dataObjects",
+      targetId: object.id,
+      targetBucket: "dataObjects",
+      suggestedAction: "review_target",
     }));
 }
 
@@ -73,12 +102,15 @@ function validateDuplicateNames<T extends Screen | DataObject>(
     const existing = seen.get(key);
     if (existing) {
       issues.push({
-        id: `duplicate-${bucket}-${key}`,
+        id: `duplicate-${bucket}-${key}-${object.id}`,
         severity: "error",
         code: "duplicate_name",
         message: `내보내기 전에 고칠 것: ${message}`,
         relatedObjectId: object.id,
         relatedBucket: bucket,
+        targetId: object.id,
+        targetBucket: bucket,
+        suggestedAction: "mark_duplicate_deferred",
       });
       continue;
     }
@@ -99,7 +131,46 @@ function validateConfirmedDataObjectsHaveFields(objects: XraySuggestionSet): Val
       message: "확인 필요: 앱이 저장할 정보에 확정된 필드가 없습니다.",
       relatedObjectId: object.id,
       relatedBucket: "dataObjects",
+      targetId: object.id,
+      targetBucket: "dataObjects",
+      suggestedAction: "review_target",
     }));
+}
+
+function validateConfirmedDataFieldsHaveDataObjects(objects: XraySuggestionSet): ValidationIssue[] {
+  const allObjectIds = new Set(objects.dataObjects.map((object) => object.id));
+  const confirmedObjectIds = new Set(getDefaultExportableObjects(objects.dataObjects).map((object) => object.id));
+
+  return getDefaultExportableObjects(objects.dataFields).flatMap((field) => {
+    if (confirmedObjectIds.has(field.dataObjectId)) return [];
+    const target = {
+      relatedObjectId: field.id,
+      relatedBucket: "dataFields" as const,
+      targetId: field.id,
+      targetBucket: "dataFields" as const,
+      suggestedAction: "review_target" as const,
+    };
+    if (allObjectIds.has(field.dataObjectId)) {
+      return [
+        {
+          id: `non-confirmed-field-parent-${field.id}`,
+          severity: "error" as const,
+          code: "non_confirmed_export",
+          message: "내보내기 전에 고칠 것: 확정된 항목이 확정되지 않은 정보 구조를 참조합니다.",
+          ...target,
+        },
+      ];
+    }
+    return [
+      {
+        id: `orphan-field-${field.id}`,
+        severity: "error" as const,
+        code: "orphan_field",
+        message: "내보내기 전에 고칠 것: 연결할 앱 정보가 없는 확정 필드가 있습니다.",
+        ...target,
+      },
+    ];
+  });
 }
 
 function validateDataRelations(objects: XraySuggestionSet): ValidationIssue[] {
@@ -116,6 +187,9 @@ function validateDataRelations(objects: XraySuggestionSet): ValidationIssue[] {
         message: "내보내기 전에 고칠 것: 연결이 끊긴 정보 구조 관계가 있습니다.",
         relatedObjectId: relation.id,
         relatedBucket: "dataRelations",
+        targetId: relation.id,
+        targetBucket: "dataRelations",
+        suggestedAction: "remove_broken_relation",
       });
     }
     if (!objectIds.has(relation.targetObjectId)) {
@@ -126,6 +200,9 @@ function validateDataRelations(objects: XraySuggestionSet): ValidationIssue[] {
         message: "내보내기 전에 고칠 것: 연결이 끊긴 정보 구조 관계가 있습니다.",
         relatedObjectId: relation.id,
         relatedBucket: "dataRelations",
+        targetId: relation.id,
+        targetBucket: "dataRelations",
+        suggestedAction: "remove_broken_relation",
       });
     }
     return missing;
@@ -143,6 +220,9 @@ function validateConfirmedScreensHaveFeatures(objects: XraySuggestionSet): Valid
       message: "확인 필요: 확정된 화면에 연결된 확정 기능이 없습니다.",
       relatedObjectId: screen.id,
       relatedBucket: "screens",
+      targetId: screen.id,
+      targetBucket: "screens",
+      suggestedAction: "review_target",
     }));
 }
 
@@ -157,6 +237,9 @@ function validateConfirmedFlows(objects: XraySuggestionSet): ValidationIssue[] {
       message: "내보내기 전에 고칠 것: 사용 흐름에는 확정된 단계가 2개 이상 필요합니다.",
       relatedObjectId: flow.id,
       relatedBucket: "flows",
+      targetId: flow.id,
+      targetBucket: "flows",
+      suggestedAction: "review_target",
     }));
 }
 
@@ -173,12 +256,14 @@ function validateDefaultExportScope(objects: XraySuggestionSet): ValidationIssue
       code: "non_confirmed_export",
       message: "내보내기 전에 고칠 것: 확정되지 않은 항목이 기본 export 대상에 포함되었습니다.",
       relatedObjectId: object.id,
+      targetId: object.id,
+      suggestedAction: "review_target",
     }));
 }
 
 function validateHighSeverityIssues(objects: XraySuggestionSet): ValidationIssue[] {
   return getDefaultExportableObjects(objects.issues)
-    .filter((issue) => issue.severity === "high")
+    .filter((issue) => issue.severity === "high" && issue.includeInPrompt !== false)
     .map((issue) => ({
       id: `high-severity-issue-${issue.id}`,
       severity: "warning",
@@ -186,6 +271,9 @@ function validateHighSeverityIssues(objects: XraySuggestionSet): ValidationIssue
       message: "확인 필요: 중요한 결정 필요 항목이 아직 남아 있습니다.",
       relatedObjectId: issue.id,
       relatedBucket: "issues",
+      targetId: issue.id,
+      targetBucket: "issues",
+      suggestedAction: "exclude_issue_from_prompt",
     }));
 }
 
@@ -198,6 +286,8 @@ function validateMinimumExportShape(objects: XraySuggestionSet): ValidationIssue
       code: "no_confirmed_screens",
       message: "확인 필요: 확정된 화면이 없습니다.",
       relatedBucket: "screens",
+      targetBucket: "screens",
+      suggestedAction: "review_target",
     });
   }
   if (getDefaultExportableObjects(objects.dataObjects).length === 0) {
@@ -207,6 +297,8 @@ function validateMinimumExportShape(objects: XraySuggestionSet): ValidationIssue
       code: "no_confirmed_data_objects",
       message: "확인 필요: 확정된 앱이 저장할 정보가 없습니다.",
       relatedBucket: "dataObjects",
+      targetBucket: "dataObjects",
+      suggestedAction: "review_target",
     });
   }
   return issues;

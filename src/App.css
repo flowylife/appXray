@@ -92,6 +92,7 @@ button.danger {
   position: sticky;
   top: 0;
   height: 100vh;
+  min-width: 0;
 }
 
 .brand {
@@ -182,6 +183,10 @@ nav a:hover {
   padding-right: 0.6rem;
 }
 
+.icon-button.pending-delete {
+  min-width: 5.4rem;
+}
+
 .status-card {
   background: #f2f7f5;
   border: 1px solid #dce8e4;
@@ -205,6 +210,7 @@ nav a:hover {
 .workspace {
   display: grid;
   gap: 1rem;
+  min-width: 0;
   padding: 1.4rem;
 }
 
@@ -296,8 +302,10 @@ textarea {
   border: 1px solid #cfdbd7;
   border-radius: 8px;
   color: #172026;
+  min-width: 0;
   padding: 0.75rem;
   resize: vertical;
+  width: 100%;
 }
 
 .button-row {
@@ -325,6 +333,12 @@ textarea {
   border: 1px solid #dce8e4;
   border-radius: 999px;
   padding: 0.32rem 0.55rem;
+}
+
+.source-meta span:first-child {
+  background: #e7f3ff;
+  border-color: #c8def3;
+  color: #275b84;
 }
 
 .analysis-history {
@@ -382,6 +396,57 @@ textarea {
   padding: 0.5rem 0.72rem;
 }
 
+.review-filters button.active {
+  background: #096b68;
+  color: #ffffff;
+}
+
+.review-toolbar {
+  align-items: end;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: minmax(170px, 0.6fr) minmax(220px, 1fr) auto;
+  margin-bottom: 0.8rem;
+}
+
+.merge-impact-panel,
+.bucket-status-counts {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.merge-impact-panel {
+  background: #f7faf9;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  color: #40504c;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-bottom: 0.85rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.merge-impact-panel span,
+.bucket-status-counts span {
+  background: #ffffff;
+  border: 1px solid #dfe7e4;
+  border-radius: 999px;
+  color: #60706b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 0.3rem 0.5rem;
+}
+
+.review-group-heading {
+  align-items: start;
+  display: flex;
+  gap: 0.8rem;
+  justify-content: space-between;
+  margin-bottom: 0.65rem;
+}
+
 .review-group + .review-group {
   margin-top: 1.25rem;
 }
@@ -391,7 +456,7 @@ textarea {
   display: flex;
   gap: 0.45rem;
   font-size: 0.98rem;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.4rem;
 }
 
 .review-group h3 span {
@@ -626,6 +691,31 @@ textarea {
   color: #3f7832;
 }
 
+.change-badge.preserved_review_decision {
+  background: #eef0f4;
+  color: #536174;
+}
+
+.validation-badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  justify-content: center;
+  min-width: 5.8rem;
+  padding: 0.3rem 0.48rem;
+}
+
+.validation-badge.error {
+  background: #f8ded7;
+  color: #8f321e;
+}
+
+.validation-badge.warning {
+  background: #fff3d7;
+  color: #825d00;
+}
+
 .badge.suggested {
   background: #fff3d7;
   color: #825d00;
@@ -671,6 +761,48 @@ textarea {
 .prompt-step-select,
 .export-options {
   margin-bottom: 0.85rem;
+}
+
+.export-mode-note,
+.export-description,
+.export-preview-actions {
+  align-items: center;
+  background: #f7faf9;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  color: #40504c;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.export-mode-note .audit-trail-label {
+  color: #8f321e;
+}
+
+.export-mode-note .active-mode-label {
+  font-weight: 900;
+}
+
+.export-description {
+  align-items: start;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.export-description p,
+.export-preview-actions span {
+  color: #60706b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.export-preview-actions {
+  justify-content: space-between;
 }
 
 .export-options {
@@ -719,6 +851,17 @@ textarea {
   padding-left: 1.15rem;
 }
 
+.validation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.validation-actions button {
+  padding: 0.42rem 0.65rem;
+}
+
 .build-plan-list {
   display: grid;
   gap: 0.65rem;
@@ -758,6 +901,31 @@ textarea {
   font-size: 0.8rem;
   font-weight: 700;
   padding: 0.35rem 0.6rem;
+}
+
+.recovery-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.recovery-preview {
+  align-items: center;
+  background: #fbfcfc;
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  display: flex;
+  gap: 0.9rem;
+  justify-content: space-between;
+  margin-top: 0.85rem;
+  padding: 0.85rem;
+}
+
+.recovery-preview p {
+  color: #60706b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0.2rem 0 0;
 }
 
 .build-plan-step {
@@ -840,7 +1008,21 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .review-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .review-group-heading {
+    align-items: stretch;
+    display: grid;
+  }
+
   .template-preview {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .recovery-preview {
     align-items: stretch;
     display: grid;
   }
@@ -860,5 +1042,57 @@ textarea {
 
   .map-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .sidebar,
+  .workspace {
+    padding: 1rem;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #dfe7e4;
+    gap: 1rem;
+  }
+
+  nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  nav a {
+    padding: 0.62rem 0.7rem;
+  }
+
+  .topbar,
+  .panel,
+  .empty-state {
+    padding: 1rem;
+  }
+
+  .topbar-actions,
+  .button-row,
+  .segmented,
+  .export-preview-actions {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-actions button,
+  .button-row button,
+  .segmented button,
+  .file-button {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .source-meta span,
+  .analysis-history span,
+  .diff-summary span,
+  .diff-detail span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 }
