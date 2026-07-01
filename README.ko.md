@@ -129,6 +129,23 @@ npm run dev
 
 Vite dev server는 기본적으로 `127.0.0.1`에 바인딩됩니다.
 
+### 데스크톱 앱
+
+App X-Ray는 local Electron 데스크톱 앱으로도 실행할 수 있습니다.
+
+```bash
+npm run electron:dev
+```
+
+패키지된 데스크톱 빌드를 만들려면 다음 명령을 사용합니다.
+
+```bash
+npm run package:dir
+npm run package:mac
+```
+
+생성된 데스크톱 패키지는 `release/`에 저장됩니다. macOS 빌드는 기본적으로 서명되지 않으므로, 처음 실행할 때 로컬 Gatekeeper 정책에 따라 Finder에서 수동으로 열어야 할 수 있습니다.
+
 ### 품질 확인
 
 ```bash

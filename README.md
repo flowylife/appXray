@@ -129,6 +129,23 @@ npm run dev
 
 The Vite dev server binds to `127.0.0.1` by default.
 
+### Desktop App
+
+App X-Ray can also run as a local Electron desktop app.
+
+```bash
+npm run electron:dev
+```
+
+To create a packaged desktop build:
+
+```bash
+npm run package:dir
+npm run package:mac
+```
+
+Generated desktop packages are written to `release/`. macOS builds are unsigned by default, so local Gatekeeper policy may require opening the app manually from Finder the first time.
+
 ### Quality Checks
 
 ```bash

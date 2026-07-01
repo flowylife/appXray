@@ -2,19 +2,48 @@
   "name": "app-xray",
   "version": "0.0.0",
   "private": true,
+  "description": "Local-first app planning and review tool.",
+  "author": "App X-Ray contributors",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "compile": "tsc",
     "build": "npm run compile && vite build --outDir app-dist",
     "dev": "vite --host 127.0.0.1",
+    "electron:dev": "npm run build && electron .",
+    "package:dir": "npm run build && electron-builder --dir --publish=never",
+    "package:mac": "npm run build && electron-builder --mac --publish=never",
     "test": "npm run compile && node --test test/*.test.mjs",
     "test:e2e": "playwright test"
+  },
+  "build": {
+    "appId": "com.appxray.desktop",
+    "productName": "App X-Ray",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app-dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "jsdom": "^29.1.1",
     "playwright": "^1.61.0",
     "typescript": "^5.5.0",
