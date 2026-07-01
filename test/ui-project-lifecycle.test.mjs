@@ -173,9 +173,9 @@ test("AI provider switch clears the previous provider API key before saving", as
   await renderApp("#/settings/ai");
 
   await fillLabeledControl("AI 제공자", "openai");
-  await fillLabeledControl("API Key", "sk-openai-secret-1234567890");
+  await fillLabeledControl("API Key", "test-openai-key-redacted-1234567890");
   await clickButton("설정 저장");
-  assert.match(localStorage.getItem("app-xray.ai-settings.v1"), /sk-openai-secret/);
+  assert.match(localStorage.getItem("app-xray.ai-settings.v1"), /test-openai-key-redacted/);
 
   await fillLabeledControl("AI 제공자", "anthropic");
   await clickButton("설정 저장");
