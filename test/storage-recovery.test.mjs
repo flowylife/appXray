@@ -187,7 +187,7 @@ test("snapshot restore UI shows project time and validation before applying", as
     assert.match(document.body.textContent, /내보내기 가능/);
     assert.match(document.body.textContent, /2026/);
 
-    await clickButton("복원 미리보기");
+    await clickButton("자동 저장 이전 2026-07-01T01:06:00.000Z 복원 미리보기");
     assert.match(document.querySelector("h1")?.textContent ?? "", /현재 프로젝트/);
     assert.match(document.body.textContent, /자동 저장 이전/);
 
@@ -291,7 +291,7 @@ async function importBackupFile(content) {
 
 async function clickButton(name) {
   const button = Array.from(document.querySelectorAll("button")).find((candidate) =>
-    candidate.textContent?.trim() === name,
+    candidate.textContent?.trim() === name || candidate.getAttribute("aria-label") === name,
   );
   assert.ok(button, `Missing button: ${name}`);
   await act(async () => button.click());

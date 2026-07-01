@@ -997,7 +997,14 @@ export default function App() {
                         <p>{snapshot.createdAt} · {formatDateTime(snapshot.createdAt)}</p>
                         <p>{validationStatusLabel(snapshot.validation)}</p>
                       </div>
-                      <button className="secondary" type="button" onClick={() => previewAutosaveSnapshot(snapshot.id)}>복원 미리보기</button>
+                      <button
+                        aria-label={`${snapshot.projectName} ${snapshot.createdAt} 복원 미리보기`}
+                        className="secondary"
+                        type="button"
+                        onClick={() => previewAutosaveSnapshot(snapshot.id)}
+                      >
+                        복원 미리보기
+                      </button>
                     </article>
                   ))}
                 </div>
